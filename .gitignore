@@ -16,6 +16,8 @@ node_modules/
 media/
 staticfiles/
 *.ofx
+*.pdf
 *.sqlite3
 *.env
 cartao_credito/data/
+conta_corrente/data/
