@@ -1,71 +1,106 @@
 import pandas as pd
+from pathlib import Path
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from core.models import Categoria
 from cartao_credito.models import Lancamento
-from pathlib import Path
+
 
 class Command(BaseCommand):
-    help = 'Categorização automática dos lançamentos com base em regras (com suporte a subcategorias)'
+    help = "Categorização automática dos lançamentos com base em regras (com suporte a subcategorias)"
+
     def add_arguments(self, parser):
         parser.add_argument(
-            '--forcar',
-            action='store_true',
-            help='Aplica as regras mesmo nos lançamentos que já têm categoria'
+            "--forcar",
+            action="store_true",
+            help="Aplica as regras mesmo nos lançamentos que já têm categoria",
+        )
+        parser.add_argument(
+            "--csv",
+            default=None,
+            help="Caminho do CSV de regras (colunas: palavra_chave,categoria[,supercategoria])",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Simula sem gravar alterações.",
         )
 
     def handle(self, *args, **options):
-        # Caminho até o CSV (ajuste conforme necessário)
-        caminho_csv = Path(__file__).resolve().parent.parent.parent / "regras_categorias.csv"
+        # CSV padrão ao lado deste arquivo:
+        default_csv = Path(__file__).resolve().parent.parent.parent / "regras_categorias.csv"
+        caminho_csv = Path(options["csv"] or default_csv)
+
         if not caminho_csv.exists():
             self.stderr.write(self.style.ERROR(f"Arquivo de regras não encontrado: {caminho_csv}"))
             return
 
-        # Lê o CSV como dicionário por linha
         try:
-            regras_df = pd.read_csv(caminho_csv)
+            regras_df = pd.read_csv(caminho_csv).fillna("")
+            # normaliza colunas esperadas
+            for col in ("palavra_chave", "categoria", "supercategoria"):
+                if col not in regras_df.columns:
+                    regras_df[col] = ""
+            # tira espaços e força lower na chave
+            regras_df["palavra_chave"] = regras_df["palavra_chave"].astype(str).str.strip().str.lower()
+            regras_df["categoria"] = regras_df["categoria"].astype(str).str.strip()
+            regras_df["supercategoria"] = regras_df["supercategoria"].astype(str).str.strip()
             regras = regras_df.to_dict(orient="records")
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"Erro ao ler o CSV: {e}"))
             return
 
-        if options["forcar"]:
-            lancamentos = Lancamento.objects.all()
-            self.stdout.write(self.style.WARNING("⚠ Reaplicando regras em TODOS os lançamentos..."))
-        else:
-            lancamentos = Lancamento.objects.filter(categoria__isnull=True)
+        qs = Lancamento.objects.all() if options["forcar"] else Lancamento.objects.filter(categoria__isnull=True)
+        total_alterados = 0
+        dry = options["dry_run"]
 
-        total = 0
+        self.stdout.write(self.style.NOTICE(
+            f"⚙️  Iniciando categorização (forçar={options['forcar']}, dry-run={dry}) — regras: {len(regras)}"
+        ))
 
-        for lanc in lancamentos:
-            desc = lanc.descricao.lower()
-            for regra in regras:
-                chave = str(regra.get("palavra_chave", "")).lower()
-                nome_categoria = str(regra.get("categoria")).strip()
-                nome_super = str(regra.get("supercategoria")).strip() if "supercategoria" in regra else None
+        with transaction.atomic():
+            for lanc in qs.select_related("categoria"):
+                desc = (lanc.descricao or "").lower()
 
-                if chave and chave in desc:
-                    # Criar categoria pai se existir
-                    categoria_pai = None
-                    if nome_super:
-                        categoria_pai, _ = Categoria.objects.get_or_create(nome=nome_super)
+                aplicou = False
+                for r in regras:
+                    chave = r.get("palavra_chave", "")
+                    if not chave:
+                        continue
+                    if chave in desc:
+                        nome_super = r.get("supercategoria") or ""
+                        nome_cat = r.get("categoria") or ""
 
-                    # Criar subcategoria com vínculo ao pai
-                    categoria, criada = Categoria.objects.get_or_create(
-                        nome=nome_categoria,
-                        defaults={"categoria_pai": categoria_pai}
-                    )
+                        # cria/pega supercategoria (pai)
+                        categoria_pai = None
+                        if nome_super:
+                            categoria_pai, _ = Categoria.objects.get_or_create(nome=nome_super)
 
-                    # Se já existia mas estava sem pai, atualiza
-                    if not categoria.categoria_pai and categoria_pai:
-                        categoria.categoria_pai = categoria_pai
-                        categoria.save()
+                        # cria/pega categoria (filha)
+                        categoria, created = Categoria.objects.get_or_create(
+                            nome=nome_cat or chave,  # se não vier categoria, usa a própria chave
+                            defaults={"categoria_pai": categoria_pai},
+                        )
+                        # se já existia sem pai e temos pai, atualiza
+                        if categoria_pai and not categoria.categoria_pai_id:
+                            categoria.categoria_pai = categoria_pai
+                            categoria.save(update_fields=["categoria_pai"])
 
-                    lanc.categoria = categoria
-                    lanc.save()
-                    self.stdout.write(f"✔ {desc[:40]} → {categoria} ({categoria_pai or 'sem pai'})")
-                    total += 1
-                    break
-            else:
-                self.stdout.write(self.style.WARNING(f"⚠ Sem regra para: {desc[:40]}"))
+                        if lanc.categoria_id != categoria.id:
+                            lanc.categoria = categoria
+                            if not dry:
+                                lanc.save(update_fields=["categoria"])
+                            total_alterados += 1
 
-        self.stdout.write(self.style.SUCCESS(f"✅ {total} lançamentos categorizados."))
+                        self.stdout.write(f"✔ {desc[:50]} → {categoria} ({categoria_pai or 'sem pai'})")
+                        aplicou = True
+                        break
+
+                if not aplicou:
+                    self.stdout.write(self.style.WARNING(f"⚠ Sem regra para: {desc[:50]}"))
+
+            if dry:
+                self.stdout.write(self.style.WARNING("🔬 Dry-run ativo: revertendo transação."))
+                raise SystemExit(0)
+
+        self.stdout.write(self.style.SUCCESS(f"✅ {total_alterados} lançamentos categorizados."))

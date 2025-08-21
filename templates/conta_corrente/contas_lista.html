@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex align-items-center mb-3">
+    <h1 class="h4 mb-0">Contas</h1>
+  </div>
+
+  <form class="row g-2 mb-3">
+    <div class="col-auto">
+      <input type="number" class="form-control" name="instituicao" placeholder="ID instituição" value="{{ instituicao_id|default_if_none:'' }}">
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-primary">Filtrar</button>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Instituição</th>
+          <th>Conta</th>
+          <th>Titular</th>
+          <th class="text-end">Qtd transações</th>
+          <th>Último movimento</th>
+          <th class="text-end">Total movimentado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in contas %}
+          <tr>
+            <td>{{ c.instituicao.nome }}</td>
+            <td>{{ c.numero }}</td>
+            <td>{{ c.titular }}</td>
+            <td class="text-end">{{ c.qtd_transacoes }}</td>
+            <td>{{ c.ultimo_mov|date:"Y-m-d" }}</td>
+            <td class="text-end">R$ {{ c.total_mov|default_if_none:0|floatformat:2 }}</td>
+            <td>
+              <a class="btn btn-sm btn-outline-primary"
+                 href="{% url 'conta_corrente:transacoes_lista' %}?conta={{ c.id }}">Ver transações</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7" class="text-center text-muted">Nenhuma conta encontrada.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

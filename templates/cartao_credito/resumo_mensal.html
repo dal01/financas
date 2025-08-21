@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% load formatadores %}
+
+{% block content %}
+<div class="container py-4">
+  <h1>Resumo mensal{% if ano %} — {{ ano }}{% endif %}</h1>
+
+  <table class="table table-sm table-striped">
+    <thead>
+      <tr>
+        <th>Mês</th>
+        <th class="text-end">Entradas</th>
+        <th class="text-end">Saídas</th>
+        <th class="text-end">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for linha in linhas %}
+        {% with y=linha.ym|slice:":4" m=linha.ym|slice:"5:7" %}
+        <tr>
+          <td>
+            <a href="{% url 'lista' %}?ano={{ y }}&mes={{ m }}">
+              {{ linha.ym }}
+            </a>
+          </td>
+          <td class="text-end">R$ {{ linha.entradas|default_if_none:0|moeda_brasileira }}</td>
+          <td class="text-end">R$ {{ linha.saidas|default_if_none:0|moeda_brasileira }}</td>
+          <td class="text-end">R$ {{ linha.total|default_if_none:0|moeda_brasileira }}</td>
+        </tr>
+        {% endwith %}
+      {% empty %}
+        <tr><td colspan="4" class="text-center text-muted">Sem dados.</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <th>Total</th>
+        <th class="text-end">R$ {{ totais.entradas|moeda_brasileira }}</th>
+        <th class="text-end">R$ {{ totais.saidas|moeda_brasileira }}</th>
+        <th class="text-end">R$ {{ totais.total|moeda_brasileira }}</th>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+{% endblock %}

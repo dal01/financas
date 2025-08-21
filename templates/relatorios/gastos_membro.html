@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% load formatadores %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex align-items-center mb-3">
+    <h1 class="h4 mb-0">Gastos por membro (rateados)</h1>
+    <div class="ms-3 d-flex align-items-center gap-2 flex-wrap">
+      <span class="badge text-bg-primary">Período: {{ inicio }} a {{ fim }}</span>
+      {% if conta %}
+        <span class="badge text-bg-info">Conta: {{ conta.instituicao.nome }} - {{ conta.numero }}</span>
+      {% endif %}
+      {% if incluir_ocultas %}
+        <span class="badge text-bg-warning">Incluindo ocultas (apenas CCorrente)</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Filtros -->
+  <form class="row g-2 mb-4">
+    <div class="col-12 col-sm-auto">
+      <label class="form-label mb-1">Início</label>
+      <input type="month" class="form-control" name="inicio" value="{{ inicio }}">
+    </div>
+    <div class="col-12 col-sm-auto">
+      <label class="form-label mb-1">Fim</label>
+      <input type="month" class="form-control" name="fim" value="{{ fim }}">
+    </div>
+    <div class="col-12 col-sm-auto">
+      <label class="form-label mb-1">Conta (ID)</label>
+      <input type="text" class="form-control" name="conta" value="{{ conta_id|default_if_none:'' }}">
+    </div>
+    <div class="col-12 col-sm-auto d-flex align-items-end">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="1" id="incluir_ocultas" name="incluir_ocultas" {% if incluir_ocultas %}checked{% endif %}>
+        <label class="form-check-label" for="incluir_ocultas">Incluir ocultas</label>
+      </div>
+    </div>
+    <div class="col-12 col-sm-auto d-flex align-items-end">
+      <button class="btn btn-primary">Aplicar</button>
+      <a class="btn btn-outline-secondary ms-2" href="{% url 'relatorios:gastos_membro' %}">Ano atual</a>
+    </div>
+  </form>
+
+  {# =========================
+     SEÇÃO 1 — CONTA-CORRENTE
+     ========================= #}
+  <h2 class="h6 mt-2 mb-2">Despesas — Conta-corrente</h2>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Membro</th>
+          <th class="text-end">Cotas</th>
+          <th class="text-end">Total</th>
+          {% for mdt in meses_labels %}
+            <th class="text-end d-none d-md-table-cell">{{ mdt|date:"Y-m" }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in linhas_membro_cc|default:linhas_membro %}
+          <tr>
+            <td>{{ row.membro_nome }}</td>
+            <td class="text-end">{{ row.qtd }}</td>
+            <td class="text-end text-danger">{{ row.total|moeda_brasileira }}</td>
+            {% for v in row.por_mes %}
+              <td class="text-end d-none d-md-table-cell">{{ v|moeda_brasileira }}</td>
+            {% endfor %}
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="{{ meses_labels|length|add:3 }}" class="text-center text-muted">Sem dados para o período.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+
+      {% if linhas_membro_cc|default:linhas_membro %}
+      <tfoot>
+        <tr class="fw-semibold">
+          <td>Total</td>
+          <td class="text-end">{{ total_qtd_cc|default:total_qtd }}</td>
+          <td class="text-end text-danger">{{ total_geral_cc|default:total_geral|moeda_brasileira }}</td>
+          {% for v in totais_mes_cc %}
+            <td class="text-end d-none d-md-table-cell">{{ v|moeda_brasileira }}</td>
+          {% endfor %}
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+
+  {# =========================
+     SEÇÃO 2 — CARTÃO DE CRÉDITO
+     ========================= #}
+  {% if linhas_membro_cartao %}
+  <h2 class="h6 mt-4 mb-2">Despesas — Cartão de crédito</h2>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Membro</th>
+          <th class="text-end">Cotas</th>
+          <th class="text-end">Total</th>
+          {% for mdt in meses_labels %}
+            <th class="text-end d-none d-md-table-cell">{{ mdt|date:"Y-m" }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in linhas_membro_cartao %}
+          <tr>
+            <td>{{ row.membro_nome }}</td>
+            <td class="text-end">{{ row.qtd }}</td>
+            <td class="text-end text-danger">{{ row.total|moeda_brasileira }}</td>
+            {% for v in row.por_mes %}
+              <td class="text-end d-none d-md-table-cell">{{ v|moeda_brasileira }}</td>
+            {% endfor %}
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="{{ meses_labels|length|add:3 }}" class="text-center text-muted">Sem dados para o período.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="fw-semibold">
+          <td>Total</td>
+          <td class="text-end">{{ total_qtd_cartao }}</td>
+          <td class="text-end text-danger">{{ total_geral_cartao|moeda_brasileira }}</td>
+          {% for v in totais_mes_cartao %}
+            <td class="text-end d-none d-md-table-cell">{{ v|moeda_brasileira }}</td>
+          {% endfor %}
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% endif %}
+
+  {# =========================
+     SEÇÃO 3 — SOMA GERAL
+     ========================= #}
+  {% if total_geral_ambos or total_qtd_ambos %}
+  <div class="mt-3">
+    <div class="alert alert-secondary d-flex justify-content-between align-items-center">
+      <div class="fw-semibold">Total geral (Conta-corrente + Cartão)</div>
+      <div>
+        <span class="me-3">Cotas: <strong>{{ total_qtd_ambos }}</strong></span>
+        <span>Valor: <strong class="text-danger">{{ total_geral_ambos|moeda_brasileira }}</strong></span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

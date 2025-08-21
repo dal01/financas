@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% load formatadores %}
+
+{% block content %}
+<div class="container py-4">
+
+  <div class="d-flex align-items-center mb-3">
+    <h1 class="h4 mb-0">Transações (dados brutos do OFX)</h1>
+    <div class="ms-3">
+      {% if ano and mes %}
+        <span class="badge text-bg-primary">Período: {{ ano }}-{{ mes|stringformat:"02d" }}</span>
+      {% else %}
+        <span class="badge text-bg-secondary">Sem filtro de período</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Resumo -->
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-md-4">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-secondary small">Entradas</div>
+          <div class="fs-5 fw-semibold text-success">R$ {{ entradas|default_if_none:0|moeda_brasileira }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-secondary small">Saídas</div>
+          <div class="fs-5 fw-semibold text-danger">R$ {{ saidas|default_if_none:0|moeda_brasileira }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-secondary small">Total</div>
+          <div class="fs-5 fw-semibold">R$ {{ total|default_if_none:0|moeda_brasileira }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Entradas -->
+  <h2 class="h5 mt-4">Entradas por descrição</h2>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Data</th>
+          <th>Descrição (OFX)</th>
+          <th class="text-end">Quantidade</th>
+          <th class="text-end">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in entradas_agrupadas %}
+          <tr>
+            <td>{{ r.data|date:"d/m/Y" }}</td>
+            <td class="text-truncate" style="max-width: 520px">{{ r.descricao }}</td>
+            <td class="text-end">{{ r.quantidade }}</td>
+            <td class="text-end">R$ {{ r.total|default_if_none:0|moeda_brasileira }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="text-center text-muted">Sem entradas.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Saídas -->
+  <h2 class="h5 mt-4">Saídas por descrição</h2>
+  <div class="table-responsive mb-5">
+    <table class="table table-sm table-striped align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Data</th>
+          <th>Descrição (OFX)</th>
+          <th class="text-end">Quantidade</th>
+          <th class="text-end">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in saidas_agrupadas %}
+          <tr>
+            <td>{{ r.data|date:"d/m/Y" }}</td>
+            <td class="text-truncate" style="max-width: 520px">{{ r.descricao }}</td>
+            <td class="text-end">{{ r.quantidade }}</td>
+            <td class="text-end">R$ {{ r.total|default_if_none:0|moeda_brasileira }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="text-center text-muted">Sem saídas.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}

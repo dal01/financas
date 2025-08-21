@@ -1,0 +1,94 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Sistema de Finanças{% endblock %}</title>
+
+  <!-- CSS Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous">
+
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg bg-body-tertiary mb-4 shadow-sm">
+    <div class="container">
+      <a class="navbar-brand fw-semibold" href="{% url 'conta_corrente:transacoes_lista' %}">Finanças</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div id="navMain" class="collapse navbar-collapse">
+        <ul class="navbar-nav me-auto">
+
+          <!-- Conta Corrente -->
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="ccDropdown" role="button" data-bs-toggle="dropdown">
+              Conta Corrente
+            </a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{% url 'conta_corrente:transacoes_lista' %}">Transações</a></li>
+              <li><a class="dropdown-item" href="{% url 'conta_corrente:resumo_mensal' %}">Resumo Mensal</a></li>
+            </ul>
+          </li>
+
+          <!-- Cartão de Crédito -->
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="ccredDropdown" role="button" data-bs-toggle="dropdown">
+              Cartão de Crédito
+            </a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{% url 'cartao_credito:lancamentos_lista' %}">Lançamentos</a></li>
+              <li><a class="dropdown-item" href="{% url 'cartao_credito:resumo_mensal' %}">Resumo Mensal</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <!-- novo item direto para faturas do mês -->
+              <li><a class="dropdown-item" href="{% url 'cartao_credito:faturas_mes' %}">Faturas do Mês</a></li>
+            </ul>
+          </li>
+
+
+          <!-- Relatórios -->
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="relatoriosDropdown" role="button" data-bs-toggle="dropdown">
+              Relatórios
+            </a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{% url 'relatorios:gastos_membro' %}">Gastos por Membro</a></li>
+            </ul>
+          </li>
+        </ul>
+
+        {% block nav_right %}{% endblock %}
+      </div>
+    </div>
+  </nav>
+
+  <main class="container">
+
+    <!-- Django messages -->
+    {% if messages %}
+      <div class="mb-3">
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'secondary' }} mb-2" role="alert">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- JS Bootstrap bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+          crossorigin="anonymous"></script>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

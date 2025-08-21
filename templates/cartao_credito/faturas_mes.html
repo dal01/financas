@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% load formatadores %}
+
+{% block title %}Faturas {{ mes|stringformat:"02d" }}/{{ ano }} · Sistema de Finanças{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 mb-0">Faturas de {{ mes|stringformat:"02d" }}/{{ ano }}</h1>
+  <div class="btn-group">
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{% url 'cartao_credito:faturas_mes' %}?ano={{ nav.ano_prev }}&mes={{ nav.mes_prev }}">◀ {{ nav.mes_prev|stringformat:"02d" }}/{{ nav.ano_prev }}</a>
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{% url 'cartao_credito:faturas_mes' %}?ano={{ nav.ano_next }}&mes={{ nav.mes_next }}">{{ nav.mes_next|stringformat:"02d" }}/{{ nav.ano_next }} ▶</a>
+  </div>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-auto">
+    <label class="form-label mb-0 small">Ano</label>
+    <input type="number" class="form-control form-control-sm" name="ano" value="{{ ano }}" min="2000" required>
+  </div>
+  <div class="col-auto">
+    <label class="form-label mb-0 small">Mês</label>
+    <input type="number" class="form-control form-control-sm" name="mes" value="{{ mes }}" min="1" max="12" required>
+  </div>
+  <div class="col-auto align-self-end">
+    <button class="btn btn-primary btn-sm" type="submit">Filtrar</button>
+  </div>
+</form>
+
+<div class="table-responsive">
+  <table class="table table-sm align-middle table-striped">
+    <thead class="table-light">
+      <tr>
+        <th>Cartão</th>
+        <th class="text-center" style="width: 120px;">Lanç.</th>
+        <th class="text-end" style="width: 160px;">Débitos</th>
+        <th class="text-end" style="width: 160px;">Créditos</th>
+        <th class="text-end" style="width: 200px;">Total (Lanç.)</th>
+        <th style="width: 1%;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in faturas %}
+        <tr>
+          <td>
+            <div class="fw-semibold">
+              {% if f.emissor %}{{ f.emissor }}{% else %}Emissor não informado{% endif %}
+              {% if f.titular %} · {{ f.titular }}{% endif %}
+              {% if f.cartao_final %} · **** {{ f.cartao_final }}{% endif %}
+              <span class="text-secondary small"> #{{ f.id }}</span>
+            </div>
+            <div class="small text-secondary">
+              Competência: {{ f.competencia|date:"m/Y" }}
+              {% if f.vencimento_em %} · Venc.: {{ f.vencimento_em|date:"d/m/Y" }}{% endif %}
+            </div>
+          </td>
+
+          <td class="text-center">{{ f.qtd_lanc|default:0 }}</td>
+
+          <td class="text-end text-danger">
+            {{ f.debitos_lanc|default_if_none:0|moeda_brasileira }}
+          </td>
+
+          <td class="text-end text-success">
+            {{ f.creditos_lanc|default_if_none:0|moeda_brasileira }}
+          </td>
+
+          <td class="text-end">
+            <div>{{ f.soma_lanc|default_if_none:0|moeda_brasileira }}</div>
+            {% if f.total and f.soma_lanc and f.total != f.soma_lanc %}
+              <div class="small text-warning">PDF: {{ f.total|moeda_brasileira }}</div>
+            {% endif %}
+          </td>
+
+          <td class="text-end">
+            <a class="btn btn-outline-primary btn-sm" href="{% url 'cartao_credito:fatura_detalhe' f.id %}">
+              Abrir
+            </a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="6" class="text-center text-muted py-4">Nenhuma fatura neste mês.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% load static formatadores %}
+
+{% block title %}Lançamentos - Cartão de Crédito{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex align-items-center mb-3">
+    <h1 class="h4 mb-0">Cartão de Crédito — Lançamentos</h1>
+    <div class="ms-3 d-flex align-items-center gap-2 flex-wrap">
+      {% if ano and mes %}
+        <span class="badge text-bg-primary">Período: {{ ano }}-{{ mes|stringformat:"02d" }}</span>
+      {% else %}
+        <span class="badge text-bg-secondary">Sem filtro de período</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Filtros -->
+  <form class="row g-2 mb-3">
+    <div class="col-12 col-sm-auto">
+      <select class="form-select" name="periodo">
+        <option value="">-- Meses com lançamentos --</option>
+        {% for m in meses_disponiveis %}
+          <option value="{{ m.value }}" {% if periodo == m.value %}selected{% endif %}>{{ m.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-12 col-sm-4">
+      <input type="text" class="form-control" name="q" placeholder="Buscar descrição..." value="{{ q }}">
+    </div>
+
+    <div class="col-12 col-sm-auto">
+      <select class="form-select" name="ord">
+        <option value="mais_novo"  {% if ord == 'mais_novo' %}selected{% endif %}>Mais novo primeiro</option>
+        <option value="mais_velho" {% if ord == 'mais_velho' %}selected{% endif %}>Mais velho primeiro</option>
+        <option value="maior_valor" {% if ord == 'maior_valor' %}selected{% endif %}>Maior valor</option>
+        <option value="menor_valor" {% if ord == 'menor_valor' %}selected{% endif %}>Menor valor</option>
+      </select>
+    </div>
+
+    <div class="col-12 col-sm-auto">
+      <button class="btn btn-primary">Filtrar</button>
+      <a class="btn btn-outline-secondary" href="{% url 'cartao_credito:lancamentos_lista' %}">Limpar filtros</a>
+    </div>
+  </form>
+
+  <!-- GRUPOS POR CARTÃO -->
+  {% if grupos and grupos.items %}
+    {% for key, g in grupos.items %}
+      <div class="mb-4">
+        <!-- Cabeçalho do cartão -->
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div class="d-flex align-items-center gap-3">
+            {% if g.bandeira %}
+              <!-- Se tiver o ícone em static/cartoes/{{bandeira}}.svg -->
+              <img src="{% static 'cartoes/' %}{{ g.bandeira|lower }}.svg"
+                   alt="{{ g.bandeira }}" height="24"
+                   onerror="this.style.display='none';">
+            {% endif %}
+            <div>
+              <div class="fw-semibold">
+                {{ g.cartao.nome }} ({{ g.cartao.titular }})
+              </div>
+              <div class="text-secondary small">
+                {% if g.bandeira %}{{ g.bandeira }} • {% endif %}Final {{ g.last4 }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabela do grupo -->
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Descrição</th>
+                <th class="text-end">Valor</th>
+                <th>Membros</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for l in g.lancamentos %}
+                <tr>
+                  <td>{{ l.data|date:"Y-m-d" }}</td>
+                  <td>{{ l.descricao }}</td>
+                  <td class="text-end {% if l.valor > 0 %}text-success{% elif l.valor < 0 %}text-danger{% endif %}">
+                    {{ l.valor|moeda_brasileira }}
+                  </td>
+                  <td class="text-wrap">
+                    <div class="d-flex flex-wrap gap-2">
+
+                      <!-- Botão TODOS -->
+                      {% if l.membros.all|length == membros|length and membros|length > 0 %}
+                        <button class="btn btn-sm rounded-pill px-2 py-0 btn-primary toggle-membro-all"
+                                data-lancamento="{{ l.id }}" title="Remover todos">Todos</button>
+                      {% else %}
+                        <button class="btn btn-sm rounded-pill px-2 py-0 btn-outline-primary toggle-membro-all"
+                                data-lancamento="{{ l.id }}" title="Atribuir todos">Todos</button>
+                      {% endif %}
+
+                      <!-- Tags por membro -->
+                      {% for m in membros %}
+                        {% if m in l.membros.all %}
+                          <button class="btn btn-sm rounded-pill px-2 py-0 btn-primary toggle-membro"
+                                  data-lancamento="{{ l.id }}"
+                                  data-membro="{{ m.id }}"
+                                  title="Remover {{ m.nome }}">
+                            {{ m.nome }}
+                          </button>
+                        {% else %}
+                          <button class="btn btn-sm rounded-pill px-2 py-0 btn-outline-primary toggle-membro"
+                                  data-lancamento="{{ l.id }}"
+                                  data-membro="{{ m.id }}"
+                                  title="Adicionar {{ m.nome }}">
+                            {{ m.nome }}
+                          </button>
+                        {% endif %}
+                      {% empty %}
+                        <span class="text-muted small">Sem membros cadastrados</span>
+                      {% endfor %}
+                    </div>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="4" class="text-center text-muted">Sem lançamentos para este cartão.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="text-center text-muted">Nenhum lançamento encontrado.</div>
+  {% endif %}
+
+  {# Sem paginação global: grupos facilitam a leitura por cartão #}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  // CSRF helper
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== "") {
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + "=")) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  }
+  const csrftoken = getCookie("csrftoken");
+
+  // Toggle individual
+  document.querySelectorAll(".toggle-membro").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      const lancamentoId = this.dataset.lancamento;
+      const membroId = this.dataset.membro;
+
+      fetch(`/cartao_credito/lancamento/${lancamentoId}/toggle-membro/${membroId}/`, {
+        method: "POST",
+        headers: { "X-CSRFToken": csrftoken },
+      })
+      .then(r => r.json())
+      .then(data => {
+        // alterna cor do botão
+        if (data.status === "adicionado") {
+          btn.classList.remove("btn-outline-primary");
+          btn.classList.add("btn-primary");
+        } else {
+          btn.classList.remove("btn-primary");
+          btn.classList.add("btn-outline-primary");
+        }
+        // ajusta o botão "Todos" da mesma linha
+        const cell = btn.closest("td");
+        const memberButtons = cell.querySelectorAll(".toggle-membro");
+        const allBtn = cell.querySelector(".toggle-membro-all");
+        const anyOff = Array.from(memberButtons).some(b => b.classList.contains("btn-outline-primary"));
+        if (allBtn) {
+          if (anyOff) {
+            allBtn.classList.remove("btn-primary");
+            allBtn.classList.add("btn-outline-primary");
+            allBtn.title = "Atribuir todos";
+          } else {
+            allBtn.classList.remove("btn-outline-primary");
+            allBtn.classList.add("btn-primary");
+            allBtn.title = "Remover todos";
+          }
+        }
+      });
+    });
+  });
+
+  // Toggle TODOS (atribui/remove todos os membros conforme estado atual)
+  document.querySelectorAll(".toggle-membro-all").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      const cell = btn.closest("td");
+      const lancamentoId = this.dataset.lancamento;
+      const memberButtons = cell.querySelectorAll(".toggle-membro");
+
+      // Se há algum desligado, ligamos todos; senão, removemos todos
+      const anyOff = Array.from(memberButtons).some(b => b.classList.contains("btn-outline-primary"));
+      const ops = [];
+      memberButtons.forEach(b => {
+        const membroId = b.dataset.membro;
+        const isOn = b.classList.contains("btn-primary");
+        const needOn = anyOff;
+        if ((needOn && !isOn) || (!needOn && isOn)) {
+          ops.push(
+            fetch(`/cartao_credito/lancamento/${lancamentoId}/toggle-membro/${membroId}/`, {
+              method: "POST",
+              headers: { "X-CSRFToken": csrftoken },
+            })
+            .then(r => r.json())
+            .then(data => {
+              if (data.status === "adicionado") {
+                b.classList.remove("btn-outline-primary");
+                b.classList.add("btn-primary");
+              } else {
+                b.classList.remove("btn-primary");
+                b.classList.add("btn-outline-primary");
+              }
+            })
+          );
+        }
+      });
+
+      Promise.all(ops).then(() => {
+        const stillAnyOff = Array.from(memberButtons).some(b => b.classList.contains("btn-outline-primary"));
+        if (stillAnyOff) {
+          btn.classList.remove("btn-primary");
+          btn.classList.add("btn-outline-primary");
+          btn.title = "Atribuir todos";
+        } else {
+          btn.classList.remove("btn-outline-primary");
+          btn.classList.add("btn-primary");
+          btn.title = "Remover todos";
+        }
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}
