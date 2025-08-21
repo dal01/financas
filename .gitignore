@@ -21,3 +21,4 @@ staticfiles/
 *.env
 cartao_credito/data/
 conta_corrente/data/
+notas.md
