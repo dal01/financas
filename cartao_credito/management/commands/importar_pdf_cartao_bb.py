@@ -105,9 +105,9 @@ class Command(BaseCommand):
         force = opts["force"]
         force_all = opts["force_all"]
 
-        # resolve relativo ao BASE_DIR se necessário
+        # resolve relativo ao DADOS_DIR  se necessário
         if not base_path.exists():
-            base2 = pathlib.Path(settings.BASE_DIR) / str(base_path)
+            base2 = pathlib.Path(settings.DADOS_DIR) / str(base_path)
             if base2.exists():
                 base_path = base2
 

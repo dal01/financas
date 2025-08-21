@@ -11,6 +11,7 @@ from io import BytesIO
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.conf import settings  # <<-- usado para DADOS_DIR
 from ofxparse import OfxParser
 
 from core.models import InstituicaoFinanceira
@@ -83,7 +84,6 @@ def preprocess_ofx(content_bytes: bytes) -> bytes:
     for m in STMTTRN_RE.finditer(text):
         parts.append(text[last_end:m.start()])
         bloco = m.group(0)
-        inner = m.group(1)
         bloco_fixed = _inject_fitid_if_missing(bloco, idx)
         parts.append(bloco_fixed)
         last_end = m.end()
@@ -211,7 +211,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         codigo = opts["codigo"]
-        pasta_base = Path(opts["pasta_base"]).resolve()
+
+        # Resolve caminho relativo ao DADOS_DIR (consistente com PDFs)
+        pasta_base = Path(opts["pasta_base"])
+        if not pasta_base.is_absolute():
+            pasta_base = settings.DADOS_DIR / pasta_base
+        pasta_base = pasta_base.resolve()
+
         pasta = pasta_base / codigo
         dry_run = opts["dry_run"]
         do_reset = opts["reset"]
@@ -269,7 +275,7 @@ class Command(BaseCommand):
                     contas_resetadas.add(conta.id)
 
                 # Importa transações
-                for tx in conta_ofx.statement.transactions:
+                for tx in getattr(conta_ofx.statement, "transactions", []):
                     data = tx.date
                     if isinstance(data, datetime):
                         data = data.date()
