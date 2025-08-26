@@ -12,25 +12,6 @@ from django.utils.html import format_html
 from .models import Conta, Transacao, RegraOcultacao, RegraMembro
 
 
-# ==========================
-# Inlines
-# ==========================
-class TransacaoInline(admin.TabularInline):
-    model = Transacao
-    fields = ("data", "descricao", "valor", "membros", "fitid")
-    extra = 0
-    ordering = ("-data", "-id")
-    show_change_link = True
-    can_delete = False
-    verbose_name_plural = "Últimas transações"
-    autocomplete_fields = ("membros",)
-    min_num = 0
-    max_num = 0  # evita exibição de formulários vazios
-
-    def get_queryset(self, request):
-        # LIMIT para manter o inline leve
-        qs = super().get_queryset(request).select_related("conta", "conta__instituicao").prefetch_related("membros")
-        return qs.order_by("-data", "-id")[:20]
 
 
 # ==========================
@@ -78,52 +59,6 @@ class SinalValorFilter(admin.SimpleListFilter):
 
 
 # ==========================
-# Ações em massa — helpers
-# ==========================
-def _apply_regras_ocultacao(qs: QuerySet[Transacao]) -> int:
-    """Marca oculta_manual=True se qualquer RegraOcultacao ativa fizer match."""
-    regras = list(RegraOcultacao.objects.filter(ativo=True))
-    total = 0
-    for tx in qs.iterator():
-        if any(r.verifica_match(tx.descricao or "") for r in regras):
-            if not tx.oculta_manual:
-                tx.oculta_manual = True
-                tx.save(update_fields=["oculta_manual"])
-                total += 1
-    return total
-
-
-def _apply_regras_membro(qs: QuerySet[Transacao]) -> tuple[int, int]:
-    """
-    Aplica RegraMembro em massa:
-    - Junta membros de todas as regras que derem match (considerando prioridade).
-    - Define o conjunto final na transação (substitui os atuais).
-    Retorna (afetadas, sem_match).
-    """
-    regras = list(RegraMembro.objects.filter(ativo=True).order_by("prioridade", "id").prefetch_related("membros"))
-    afetadas = 0
-    sem_match = 0
-
-    for tx in qs.iterator():
-        membros_final = set()
-        for r in regras:
-            try:
-                ok = r.aplica_para(tx.descricao or "", Decimal(tx.valor or 0))
-            except Exception:
-                ok = False
-            if ok:
-                for m in r.membros.all():
-                    membros_final.add(m.id)
-
-        if membros_final:
-            tx.membros.set(list(membros_final))
-            afetadas += 1
-        else:
-            sem_match += 1
-    return afetadas, sem_match
-
-
-# ==========================
 # Conta
 # ==========================
 @admin.register(Conta)
@@ -131,22 +66,27 @@ class ContaAdmin(admin.ModelAdmin):
     list_display = (
         "instituicao",
         "numero",
-        "titular",
+        "membro",               # <-- NOVO
         "tipo",
         "qtd_transacoes",
         "ultimo_mov",
         "total_mov_formatado",
         "ver_transacoes",
     )
-    list_select_related = ("instituicao",)
-    list_filter = ("tipo", "instituicao")
-    search_fields = ("numero", "titular", "instituicao__nome", "instituicao__codigo")
+    list_select_related = ("instituicao", "membro")  # <-- NOVO
+    list_filter = ("tipo", "instituicao", ("membro", admin.RelatedOnlyFieldListFilter))  # <-- NOVO
+    search_fields = (
+        "numero",
+        "instituicao__nome",
+        "instituicao__codigo",
+        "membro__nome",   # <-- NOVO
+    )
     ordering = ("instituicao__nome", "numero")
-    inlines = [TransacaoInline]
-    autocomplete_fields = ("instituicao",)
+    autocomplete_fields = ("instituicao", "membro")  # <-- NOVO
     list_per_page = 25
     save_on_top = True
     preserve_filters = True
+    actions = ["acao_propagar_membro_para_transacoes"]  # <-- NOVO
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -176,6 +116,37 @@ class ContaAdmin(admin.ModelAdmin):
         url = reverse("admin:conta_corrente_transacao_changelist") + f"?conta__id__exact={obj.id}"
         return format_html('<a class="button" href="{}">Abrir</a>', url)
 
+    # --- AÇÃO NOVA ---
+    @admin.action(description="Propagar membro da conta para TODAS as transações desta conta")
+    def acao_propagar_membro_para_transacoes(self, request, queryset: QuerySet[Conta]):
+        """
+        Define os 'membros' das transações como o 'membro' da conta (substitui o conjunto atual).
+        Útil após vincular 'membro' nas contas.
+        """
+        total_contas = 0
+        total_transacoes = 0
+        for conta in queryset.select_related("membro"):
+            if not conta.membro_id:
+                continue
+            tx_qs = Transacao.objects.filter(conta=conta).only("id")
+            # substitui o conjunto de membros de cada transação
+            for tx in tx_qs.iterator():
+                tx.membros.set([conta.membro_id])
+                total_transacoes += 1
+            total_contas += 1
+        if total_contas:
+            self.message_user(
+                request,
+                f"Membro propagado em {total_transacoes} transação(ões) de {total_contas} conta(s).",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                "Nenhuma conta com membro definido foi selecionada.",
+                level=messages.WARNING,
+            )
+
 
 # ==========================
 # Transação
@@ -187,15 +158,17 @@ class TransacaoAdmin(admin.ModelAdmin):
         "descricao",
         "valor_colorido",
         "conta",
+        "conta_membro",     # <-- NOVO
         "instituicao_nome",
         "lista_membros",
         "oculta_badge",
         "fitid",
     )
-    list_select_related = ("conta", "conta__instituicao")
+    list_select_related = ("conta", "conta__instituicao", "conta__membro")  # <-- NOVO
     list_filter = (
         ("conta", admin.RelatedOnlyFieldListFilter),
         "conta__instituicao",
+        ("conta__membro", admin.RelatedOnlyFieldListFilter),  # <-- NOVO
         SemMembrosFilter,
         SinalValorFilter,
         "oculta_manual",
@@ -205,9 +178,9 @@ class TransacaoAdmin(admin.ModelAdmin):
         "descricao",
         "fitid",
         "conta__numero",
-        "conta__titular",
         "conta__instituicao__nome",
         "conta__instituicao__codigo",
+        "conta__membro__nome",  # <-- NOVO
         "membros__nome",
     )
     date_hierarchy = "data"
@@ -222,12 +195,17 @@ class TransacaoAdmin(admin.ModelAdmin):
         "acao_limpar_membros",
         "acao_aplicar_regras_membro",
         "acao_aplicar_regras_ocultacao",
+        "acao_puxar_membro_da_conta",   # <-- NOVO
     ]
 
     # ---- displays ----
     @admin.display(description="Instituição", ordering="conta__instituicao__nome")
     def instituicao_nome(self, obj):
         return obj.conta.instituicao.nome
+
+    @admin.display(description="Membro (da conta)", ordering="conta__membro__nome")
+    def conta_membro(self, obj):
+        return getattr(obj.conta.membro, "nome", "—")
 
     @admin.display(description="Valor", ordering="valor")
     def valor_colorido(self, obj):
@@ -280,6 +258,26 @@ class TransacaoAdmin(admin.ModelAdmin):
         total = _apply_regras_ocultacao(queryset)
         self.message_user(request, f"{total} transação(ões) marcadas como ocultas via regras.", level=messages.INFO)
 
+    @admin.action(description="Puxar membro da conta para as transações selecionadas")
+    def acao_puxar_membro_da_conta(self, request, queryset: QuerySet[Transacao]):
+        """
+        Para cada transação, se a conta tiver membro, define os membros da transação
+        como [membro_da_conta] (substitui o conjunto atual).
+        """
+        afetadas = 0
+        sem_membro = 0
+        for tx in queryset.select_related("conta__membro").iterator():
+            membro_id = getattr(tx.conta.membro, "id", None)
+            if membro_id:
+                tx.membros.set([membro_id])
+                afetadas += 1
+            else:
+                sem_membro += 1
+        msg = f"Membros definidos a partir da conta em {afetadas} transação(ões)."
+        if sem_membro:
+            msg += f" {sem_membro} sem membro na conta."
+        self.message_user(request, msg, level=messages.INFO)
+
 
 # ==========================
 # Regras de Ocultação
@@ -308,8 +306,6 @@ class RegraOcultacaoAdmin(admin.ModelAdmin):
         Dica: abra Transações em outra aba com seus filtros, selecione as regras aqui e aplique.
         """
         # Para simplificar, aplicamos sobre TODAS as transações.
-        # Caso queira limitar ao queryset filtrado do changelist de Transação, é preciso
-        # uma custom action com seleção lá. Mantemos amplo aqui por praticidade.
         tx_qs = Transacao.objects.all()
         total = 0
         regras = list(queryset.filter(ativo=True))

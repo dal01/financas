@@ -5,19 +5,55 @@ from decimal import Decimal
 import re
 
 
+# conta_corrente/models.py
+from django.db import models
+from core.models import Membro
+from core.models import InstituicaoFinanceira  # já existia
+
+# conta_corrente/models.py
+from django.db import models
+from core.models import Membro, InstituicaoFinanceira
+
+
 class Conta(models.Model):
-    instituicao = models.ForeignKey(InstituicaoFinanceira, on_delete=models.CASCADE, related_name="contas")
-    titular = models.CharField(max_length=100)
+    instituicao = models.ForeignKey(
+        InstituicaoFinanceira,
+        on_delete=models.CASCADE,
+        related_name="contas",
+    )
     numero = models.CharField(max_length=50)
     agencia = models.CharField(max_length=20, blank=True, null=True)
-    tipo = models.CharField(max_length=20, choices=[
-        ("corrente", "Conta Corrente"),
-        ("poupanca", "Poupança"),
-        ("investimento", "Investimento"),
-    ], default="corrente")
+    tipo = models.CharField(
+        max_length=20,
+        choices=[
+            ("corrente", "Conta Corrente"),
+            ("poupanca", "Poupança"),
+            ("investimento", "Investimento"),
+        ],
+        default="corrente",
+    )
+    membro = models.ForeignKey(
+        Membro,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="contas",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["instituicao", "agencia", "numero"],
+                name="uniq_conta_por_banco_agencia_numero",
+                deferrable=models.Deferrable.DEFERRED,
+            ),
+        ]
 
     def __str__(self):
-        return f"{self.instituicao.nome} - {self.numero} ({self.titular})"
+        who = self.membro.nome if self.membro_id else "—"
+        return f"{self.instituicao.nome} - {self.numero} ({who})"
+
+
 
 
 class Transacao(models.Model):

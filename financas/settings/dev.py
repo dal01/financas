@@ -16,6 +16,6 @@ CSRF_TRUSTED_ORIGINS = [
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": DADOS_DIR / "db_dev.sqlite3",
+        "NAME": DADOS_DIR / "db.sqlite3",
     }
 }

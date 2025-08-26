@@ -1,6 +1,7 @@
 # conta_corrente/views/resumo_mensal.py
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
+from collections import defaultdict, OrderedDict
 
 from django.db.models import Q, Sum
 from django.db.models.functions import TruncMonth
@@ -36,10 +37,8 @@ def _aplicar_ocultacao(qs, incluir_ocultas: bool):
     if incluir_ocultas:
         return qs
 
-    # Excluir ocultas manualmente
     qs = qs.exclude(oculta_manual=True)
 
-    # Excluir por regras
     regras = list(RegraOcultacao.objects.filter(ativo=True))
     filtro_simples = Q()
     tem_simples = False
@@ -71,14 +70,18 @@ def _aplicar_ocultacao(qs, incluir_ocultas: bool):
 def resumo_mensal(request):
     """
     Série mensal de Entradas, Saídas e Saldo.
+    Seções:
+      - Resumo geral (todas as contas dos membros no queryset)
+      - Resumo por membro -> instituição -> conta, com totais
     Params:
-      - conta=<id> (opcional)
+      - conta=<id> (opcional; se passar, tudo se restringe a essa conta)
       - inicio=YYYY-MM & fim=YYYY-MM  (opcionais; priorizam sobre 'meses')
-      - meses=N (default 12)
       - incluir_ocultas=1 (default não incluir)
       - format=json (para JSON; padrão HTML)
     """
-    qs = Transacao.objects.select_related("conta", "conta__instituicao")
+    qs = Transacao.objects.select_related(
+        "conta", "conta__instituicao", "conta__membro"
+    )
 
     # Conta (opcional)
     conta_id = request.GET.get("conta")
@@ -100,14 +103,15 @@ def resumo_mensal(request):
         start = date(hoje.year, 1, 1)
         end = date(hoje.year + 1, 1, 1)  # exclusivo
 
-
     qs = qs.filter(data__gte=start, data__lt=end)
 
     # Ocultas?
     incluir_ocultas = request.GET.get("incluir_ocultas") == "1"
     qs = _aplicar_ocultacao(qs, incluir_ocultas)
 
-    # Agrupar por mês
+    # -----------------------------
+    # Séries mensais (geral)
+    # -----------------------------
     agrupado = (
         qs.annotate(mes=TruncMonth("data"))
           .values("mes")
@@ -119,14 +123,13 @@ def resumo_mensal(request):
           )
     )
 
-    # Normalizar valores e montar série
     serie = []
     total_entradas = Decimal("0")
     total_saidas = Decimal("0")
     total_saldo = Decimal("0")
     for row in agrupado:
         e = row["entradas"] or Decimal("0")
-        s = row["saidas"] or Decimal("0")
+        s = row["saidas"] or Decimal("0")  # negativo
         t = row["saldo"] or Decimal("0")
         serie.append({
             "mes": row["mes"].strftime("%Y-%m"),
@@ -138,9 +141,75 @@ def resumo_mensal(request):
         total_saidas += s
         total_saldo += t
 
+    # % poupado no período (geral)
+    if total_entradas != 0:
+        poupado_pct = (total_saldo / total_entradas * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    else:
+        poupado_pct = Decimal("0.00")
+
+    if poupado_pct < 0:
+        poupado_pct_clamp = Decimal("0.00")
+    elif poupado_pct > 100:
+        poupado_pct_clamp = Decimal("100.00")
+    else:
+        poupado_pct_clamp = poupado_pct
+
+    # -------------------------------------------
+    # Resumo por membro -> instituição -> conta
+    # (baseado em conta.membro)
+    # -------------------------------------------
+    agg_membro_conta = (
+        qs.values(
+            "conta__membro__id",
+            "conta__membro__nome",
+            "conta__instituicao__nome",
+            "conta__numero",
+            "conta_id",
+        )
+        .annotate(
+            entradas=Sum("valor", filter=Q(valor__gt=0)),
+            saidas=Sum("valor", filter=Q(valor__lt=0)),
+            saldo=Sum("valor"),
+        )
+        .order_by("conta__membro__nome", "conta__instituicao__nome", "conta__numero")
+    )
+
+    # Estrutura hierárquica: membro -> [contas] + totais do membro
+    por_membro = OrderedDict()
+    for row in agg_membro_conta:
+        membro_id = row["conta__membro__id"] or 0
+        membro_nome = row["conta__membro__nome"] or "—"
+        inst = row["conta__instituicao__nome"] or "—"
+        numero = row["conta__numero"] or "—"
+
+        e = row["entradas"] or Decimal("0")
+        s = row["saidas"] or Decimal("0")
+        t = row["saldo"] or Decimal("0")
+
+        if membro_id not in por_membro:
+            por_membro[membro_id] = {
+                "membro_id": membro_id,
+                "membro_nome": membro_nome,
+                "contas": [],
+                "totais": {"entradas": Decimal("0"), "saidas": Decimal("0"), "saldo": Decimal("0")},
+            }
+
+        por_membro[membro_id]["contas"].append({
+            "conta_id": row["conta_id"],
+            "instituicao": inst,
+            "numero": numero,
+            "entradas": e,
+            "saidas": s,
+            "saldo": t,
+        })
+        por_membro[membro_id]["totais"]["entradas"] += e
+        por_membro[membro_id]["totais"]["saidas"] += s
+        por_membro[membro_id]["totais"]["saldo"] += t
+
+    # Payload comum (JSON)
     payload = {
         "inicio": start.strftime("%Y-%m"),
-        "fim": _add_meses(end, -1).strftime("%Y-%m"),  # inclusivo
+        "fim": _add_meses(end, -1).strftime("%Y-%m"),
         "conta": conta.id if conta else None,
         "incluir_ocultas": incluir_ocultas,
         "serie": [
@@ -151,23 +220,65 @@ def resumo_mensal(request):
             "entradas": str(total_entradas),
             "saidas": str(total_saidas),
             "saldo": str(total_saldo),
-        }
+            "poupado_pct": str(poupado_pct),
+            "poupado_pct_clamp": str(poupado_pct_clamp),
+        },
+        "por_membro": [
+            {
+                "membro_id": m["membro_id"],
+                "membro_nome": m["membro_nome"],
+                "totais": {
+                    "entradas": str(m["totais"]["entradas"]),
+                    "saidas": str(m["totais"]["saidas"]),
+                    "saldo": str(m["totais"]["saldo"]),
+                },
+                "contas": [
+                    {
+                        "conta_id": c["conta_id"],
+                        "instituicao": c["instituicao"],
+                        "numero": c["numero"],
+                        "entradas": str(c["entradas"]),
+                        "saidas": str(c["saidas"]),
+                        "saldo": str(c["saldo"]),
+                    }
+                    for c in m["contas"]
+                ],
+            }
+            for m in por_membro.values()
+        ],
     }
 
     if request.GET.get("format") == "json":
         return JsonResponse(payload)
 
-    # HTML
+    # Contexto HTML
     contexto = {
         "conta": conta,
         "inicio": payload["inicio"],
         "fim": payload["fim"],
         "incluir_ocultas": incluir_ocultas,
         "serie": serie,
+        # Resumo geral
         "totais": {
             "entradas": total_entradas,
             "saidas": total_saidas,
             "saldo": total_saldo,
+            "poupado_pct": poupado_pct,
+            "poupado_pct_clamp": poupado_pct_clamp,
         },
+        # Resumo por membro (hierárquico)
+        "por_membro": [
+            {
+                "membro_id": m["membro_id"],
+                "membro_nome": m["membro_nome"],
+                "totais": {
+                    "entradas": m["totais"]["entradas"],
+                    "saidas": m["totais"]["saidas"],
+                    "saldo": m["totais"]["saldo"],
+                },
+                "contas": m["contas"],
+            }
+            for m in por_membro.values()
+        ],
     }
     return render(request, "conta_corrente/resumo_mensal.html", contexto)
