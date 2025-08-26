@@ -4,7 +4,7 @@ from django.db.models import Count, Max, Sum
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .models import Conta, Transacao, RegraMembro, RegraOcultacao
+from .models import Conta, Transacao, RegraOcultacao, RegraMembro
 
 
 # --------- Inline (mostra algumas transações dentro da conta)
@@ -16,12 +16,10 @@ class TransacaoInline(admin.TabularInline):
     show_change_link = True
     can_delete = False
     verbose_name_plural = "Últimas transações"
-    # Autocomplete também funciona para ManyToMany
     autocomplete_fields = ("membros",)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        # não dá para usar .only() com M2M; mantemos os campos básicos
         return qs.order_by("-data", "-id")[:20]
 
 
@@ -39,12 +37,7 @@ class ContaAdmin(admin.ModelAdmin):
     )
     list_select_related = ("instituicao",)
     list_filter = ("tipo", "instituicao")
-    search_fields = (
-        "numero",
-        "titular",
-        "instituicao__nome",
-        "instituicao__codigo",
-    )
+    search_fields = ("numero", "titular", "instituicao__nome", "instituicao__codigo")
     ordering = ("instituicao__nome", "numero")
     inlines = [TransacaoInline]
     autocomplete_fields = ("instituicao",)
@@ -72,10 +65,7 @@ class ContaAdmin(admin.ModelAdmin):
 
     @admin.display(description="Transações")
     def ver_transacoes(self, obj):
-        url = (
-            reverse("admin:conta_corrente_transacao_changelist")
-            + f"?conta__id__exact={obj.id}"
-        )
+        url = reverse("admin:conta_corrente_transacao_changelist") + f"?conta__id__exact={obj.id}"
         return format_html('<a class="button" href="{}">Abrir</a>', url)
 
 
@@ -90,13 +80,13 @@ class TransacaoAdmin(admin.ModelAdmin):
         "lista_membros",
         "fitid",
     )
-    # M2M não entra em select_related
     list_select_related = ("conta", "conta__instituicao")
     list_filter = (
         ("conta", admin.RelatedOnlyFieldListFilter),
         "conta__instituicao",
         ("membros", admin.RelatedOnlyFieldListFilter),
         "data",
+        "oculta_manual",
     )
     search_fields = (
         "descricao",
@@ -109,10 +99,7 @@ class TransacaoAdmin(admin.ModelAdmin):
     )
     date_hierarchy = "data"
     ordering = ("-data", "-id")
-    # autocomplete para ManyToMany (requer MembroAdmin com search_fields)
     autocomplete_fields = ("conta", "membros")
-    # Se preferir widget com duas caixas, troque para:
-    # filter_horizontal = ("membros",)
 
     @admin.display(description="Instituição", ordering="conta__instituicao__nome")
     def instituicao_nome(self, obj):
@@ -144,55 +131,53 @@ class RegraOcultacaoAdmin(admin.ModelAdmin):
     ordering = ['-criado_em']
 
 
-# --------- Regras de Membro (com condição por valor, ignorando sinal)
+# --------- RegraMembro (tolerante ao schema atual do seu models)
 @admin.register(RegraMembro)
 class RegraMembroAdmin(admin.ModelAdmin):
+    """
+    Esta versão NÃO referencia campos que não existem no seu models atual.
+    Quando você adicionar os campos (ex.: membros, prioridade, tipo_valor, valor, criado_em/atualizado_em),
+    podemos reativar filtros, ordering e fieldsets.
+    """
     list_display = (
-        "nome",
-        "tipo_padrao",
-        "padrao",
-        "condicao_valor_display",
-        "ativo",
-        "prioridade",
+        "_disp_nome",
+        "_disp_tipo_padrao",
+        "_disp_padrao",
+        "_disp_cond_valor",
+        "_disp_ativo",
+        "_disp_prioridade",
     )
-    list_filter = ("tipo_padrao", "tipo_valor", "ativo")
-    search_fields = ("nome", "padrao", "membros__nome")
-    filter_horizontal = ("membros",)
-    ordering = ("prioridade", "nome")
-    list_editable = ("ativo", "prioridade")
-    # organiza os campos na edição
-    fieldsets = (
-        (None, {
-            "fields": (
-                "nome",
-                ("tipo_padrao", "padrao"),
-                ("tipo_valor", "valor"),
-                "membros",
-                ("ativo", "prioridade"),
-            )
-        }),
-        ("Auditoria", {
-            "fields": ("criado_em", "atualizado_em"),
-            "classes": ("collapse",)
-        }),
-    )
-    readonly_fields = ("criado_em", "atualizado_em")
+    search_fields = ("nome", "padrao")  # seguro: se não existir, Django ignora no autocomplete interno
+    # Nada de filter_horizontal, list_filter, list_editable, ordering, fieldsets, readonly_fields aqui.
+
+    # --- colunas seguras ---
+    @admin.display(description="Nome")
+    def _disp_nome(self, obj):
+        return getattr(obj, "nome", f"#{obj.pk}")
+
+    @admin.display(description="Tipo padrão")
+    def _disp_tipo_padrao(self, obj):
+        return getattr(obj, "tipo_padrao", "—")
+
+    @admin.display(description="Padrão")
+    def _disp_padrao(self, obj):
+        return getattr(obj, "padrao", "—")
+
+    @admin.display(description="Ativo")
+    def _disp_ativo(self, obj):
+        v = getattr(obj, "ativo", None)
+        return "Sim" if v is True else ("Não" if v is False else "—")
+
+    @admin.display(description="Prioridade")
+    def _disp_prioridade(self, obj):
+        return getattr(obj, "prioridade", "—")
 
     @admin.display(description="Condição de valor")
-    def condicao_valor_display(self, obj: RegraMembro):
-        """
-        Mostra a condição de valor de forma amigável.
-        Importante: a lógica da regra IGNORA o sinal (usa valor absoluto).
-        """
-        mapa = {
-            "nenhum": "—",
-            "igual": "Igual a",
-            "maior": "Maior que",
-            "menor": "Menor que",
-        }
-        tipo = getattr(obj, "tipo_valor", "nenhum") or "nenhum"
-        if tipo == "nenhum" or obj.valor is None:
+    def _disp_cond_valor(self, obj):
+        tipo = getattr(obj, "tipo_valor", None)
+        val = getattr(obj, "valor", None)
+        if not tipo or tipo == "nenhum" or val is None:
             return "—"
-        # formata número no padrão brasileiro
-        v = f"R$ {obj.valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        return f"{mapa.get(tipo, tipo)} {v} (abs)"
+        mapa = {"igual": "Igual a", "maior": "Maior que", "menor": "Menor que"}
+        vtxt = f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{mapa.get(tipo, tipo)} {vtxt} (abs)"
