@@ -15,6 +15,8 @@
   {% block extra_css %}{% endblock %}
 </head>
 <body>
+
+<!-- Banner de ambiente -->
 <div style="position:fixed;right:8px;bottom:8px;
             background:#222;color:#fff;padding:6px 12px;
             border-radius:6px;opacity:0.8;z-index:9999;
@@ -27,7 +29,9 @@
   <nav class="navbar navbar-expand-lg bg-body-tertiary mb-4 shadow-sm">
     <div class="container">
       <a class="navbar-brand fw-semibold" href="{% url 'conta_corrente:transacoes_lista' %}">Finanças</a>
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
+      <button class="navbar-toggler" type="button"
+              data-bs-toggle="collapse" data-bs-target="#navMain"
+              aria-controls="navMain" aria-expanded="false" aria-label="Alternar navegação">
         <span class="navbar-toggler-icon"></span>
       </button>
       <div id="navMain" class="collapse navbar-collapse">
@@ -38,7 +42,7 @@
             <a class="nav-link dropdown-toggle" href="#" id="ccDropdown" role="button" data-bs-toggle="dropdown">
               Conta Corrente
             </a>
-            <ul class="dropdown-menu">
+            <ul class="dropdown-menu" aria-labelledby="ccDropdown">
               <li><a class="dropdown-item" href="{% url 'conta_corrente:transacoes_lista' %}">Transações</a></li>
               <li><a class="dropdown-item" href="{% url 'conta_corrente:resumo_mensal' %}">Resumo Mensal</a></li>
             </ul>
@@ -49,22 +53,20 @@
             <a class="nav-link dropdown-toggle" href="#" id="ccredDropdown" role="button" data-bs-toggle="dropdown">
               Cartão de Crédito
             </a>
-            <ul class="dropdown-menu">
+            <ul class="dropdown-menu" aria-labelledby="ccredDropdown">
               <li><a class="dropdown-item" href="{% url 'cartao_credito:lancamentos_lista' %}">Lançamentos</a></li>
               <li><a class="dropdown-item" href="{% url 'cartao_credito:resumo_mensal' %}">Resumo Mensal</a></li>
               <li><hr class="dropdown-divider"></li>
-              <!-- novo item direto para faturas do mês -->
               <li><a class="dropdown-item" href="{% url 'cartao_credito:faturas_mes' %}">Faturas do Mês</a></li>
             </ul>
           </li>
-
 
           <!-- Relatórios -->
           <li class="nav-item dropdown">
             <a class="nav-link dropdown-toggle" href="#" id="relatoriosDropdown" role="button" data-bs-toggle="dropdown">
               Relatórios
             </a>
-            <ul class="dropdown-menu">
+            <ul class="dropdown-menu" aria-labelledby="relatoriosDropdown">
               <li><a class="dropdown-item" href="{% url 'relatorios:gastos_membro' %}">Gastos por Membro</a></li>
             </ul>
           </li>
@@ -81,9 +83,18 @@
     {% if messages %}
       <div class="mb-3">
         {% for message in messages %}
-          <div class="alert alert-{{ message.tags|default:'secondary' }} mb-2" role="alert">
-            {{ message }}
-          </div>
+          {# Ajuste leve: se vier "error", o Bootstrap usa "danger" #}
+          {% if message.tags == "error" %}
+            {% with "danger" as level %}
+              <div class="alert alert-{{ level }} mb-2" role="alert">
+                {{ message }}
+              </div>
+            {% endwith %}
+          {% else %}
+            <div class="alert alert-{{ message.tags|default:'secondary' }} mb-2" role="alert">
+              {{ message }}
+            </div>
+          {% endif %}
         {% endfor %}
       </div>
     {% endif %}
