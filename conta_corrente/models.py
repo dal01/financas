@@ -1,7 +1,9 @@
+from __future__ import annotations
 from django.db import models
 from core.models import InstituicaoFinanceira, Membro
 from decimal import Decimal
 import re
+
 
 class Conta(models.Model):
     instituicao = models.ForeignKey(InstituicaoFinanceira, on_delete=models.CASCADE, related_name="contas")
@@ -114,7 +116,53 @@ class RegraOcultacao(models.Model):
     
     
 class RegraMembro(models.Model):
-    # ... (mesma definição dos campos que enviei antes)
+    TIPO_PADRAO_CHOICES = [
+        ('exato', 'Texto exato'),
+        ('contem', 'Contém o texto'),
+        ('inicia_com', 'Inicia com'),
+        ('termina_com', 'Termina com'),
+        ('regex', 'Expressão regular'),
+    ]
+
+    TIPO_VALOR_CHOICES = [
+        ('nenhum', 'Sem condição de valor'),
+        ('igual', 'Igual a'),
+        ('maior', 'Maior que'),
+        ('menor', 'Menor que'),
+    ]
+
+    # Identificação
+    nome = models.CharField(max_length=120)
+
+    # Padrão de descrição
+    tipo_padrao = models.CharField(max_length=20, choices=TIPO_PADRAO_CHOICES, default='contem')
+    padrao = models.CharField(max_length=200)
+
+    # Condição por valor (comparação por valor absoluto)
+    tipo_valor = models.CharField(max_length=10, choices=TIPO_VALOR_CHOICES, default='nenhum')
+    valor = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+
+    # Alvo (para quem atribuir)
+    membros = models.ManyToManyField(Membro, blank=True, related_name="regras_membro")
+
+    # Controle
+    ativo = models.BooleanField(default=True)
+    prioridade = models.PositiveIntegerField(default=100, help_text="Quanto menor, mais cedo esta regra é avaliada.")
+
+    # Auditoria
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Regra de Membro"
+        verbose_name_plural = "Regras de Membro"
+        ordering = ("prioridade", "nome")
+        indexes = [
+            models.Index(fields=["ativo", "prioridade"]),
+        ]
+
+    def __str__(self):
+        return f"{self.nome} ({self.get_tipo_padrao_display()})"
 
     def aplica_para(self, descricao: str, valor: Decimal) -> bool:
         if not self.ativo:
@@ -134,7 +182,10 @@ class RegraMembro(models.Model):
         elif tipo == "termina_com":
             desc_ok = desc.lower().endswith(alvo_txt.lower())
         elif tipo == "regex":
-            desc_ok = re.search(self.padrao, desc, re.I) is not None
+            try:
+                desc_ok = re.search(self.padrao, desc, re.I) is not None
+            except re.error:
+                desc_ok = False
         else:
             desc_ok = False
 
