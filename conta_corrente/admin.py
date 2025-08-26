@@ -3,7 +3,9 @@ from django.contrib import admin
 from django.db.models import Count, Max, Sum
 from django.urls import reverse
 from django.utils.html import format_html
+
 from .models import Conta, Transacao, RegraMembro, RegraOcultacao
+
 
 # --------- Inline (mostra algumas transações dentro da conta)
 class TransacaoInline(admin.TabularInline):
@@ -142,11 +144,55 @@ class RegraOcultacaoAdmin(admin.ModelAdmin):
     ordering = ['-criado_em']
 
 
-
+# --------- Regras de Membro (com condição por valor, ignorando sinal)
 @admin.register(RegraMembro)
 class RegraMembroAdmin(admin.ModelAdmin):
-    list_display = ("nome", "tipo_padrao", "padrao", "ativo", "prioridade")
-    list_filter = ("tipo_padrao", "ativo")
+    list_display = (
+        "nome",
+        "tipo_padrao",
+        "padrao",
+        "condicao_valor_display",
+        "ativo",
+        "prioridade",
+    )
+    list_filter = ("tipo_padrao", "tipo_valor", "ativo")
     search_fields = ("nome", "padrao", "membros__nome")
     filter_horizontal = ("membros",)
     ordering = ("prioridade", "nome")
+    list_editable = ("ativo", "prioridade")
+    # organiza os campos na edição
+    fieldsets = (
+        (None, {
+            "fields": (
+                "nome",
+                ("tipo_padrao", "padrao"),
+                ("tipo_valor", "valor"),
+                "membros",
+                ("ativo", "prioridade"),
+            )
+        }),
+        ("Auditoria", {
+            "fields": ("criado_em", "atualizado_em"),
+            "classes": ("collapse",)
+        }),
+    )
+    readonly_fields = ("criado_em", "atualizado_em")
+
+    @admin.display(description="Condição de valor")
+    def condicao_valor_display(self, obj: RegraMembro):
+        """
+        Mostra a condição de valor de forma amigável.
+        Importante: a lógica da regra IGNORA o sinal (usa valor absoluto).
+        """
+        mapa = {
+            "nenhum": "—",
+            "igual": "Igual a",
+            "maior": "Maior que",
+            "menor": "Menor que",
+        }
+        tipo = getattr(obj, "tipo_valor", "nenhum") or "nenhum"
+        if tipo == "nenhum" or obj.valor is None:
+            return "—"
+        # formata número no padrão brasileiro
+        v = f"R$ {obj.valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{mapa.get(tipo, tipo)} {v} (abs)"

@@ -1,5 +1,6 @@
 from django.db import models
 from core.models import InstituicaoFinanceira, Membro
+from decimal import Decimal
 import re
 
 class Conta(models.Model):
@@ -112,28 +113,47 @@ class RegraOcultacao(models.Model):
         return False
     
     
-
 class RegraMembro(models.Model):
-    TIPO_PADRAO_CHOICES = [
-        ("exato", "Igual a"),
-        ("contem", "Contém"),
-        ("inicia_com", "Inicia com"),
-        ("termina_com", "Termina com"),
-        ("regex", "Expressão Regular"),
-    ]
+    # ... (mesma definição dos campos que enviei antes)
 
-    nome = models.CharField(max_length=100)
-    padrao = models.CharField(max_length=255, help_text="Texto ou regex para encontrar na descrição")
-    tipo_padrao = models.CharField(max_length=20, choices=TIPO_PADRAO_CHOICES, default="contem")
-    membros = models.ManyToManyField(Membro, blank=True, related_name="regras_membro")
-    ativo = models.BooleanField(default=True)
-    prioridade = models.PositiveIntegerField(default=0, help_text="Ordem de execução (menor primeiro aplica antes)")
+    def aplica_para(self, descricao: str, valor: Decimal) -> bool:
+        if not self.ativo:
+            return False
 
-    criado_em = models.DateTimeField(auto_now_add=True)
-    atualizado_em = models.DateTimeField(auto_now=True)
+        # ---- match por descrição ----
+        desc = (descricao or "")
+        alvo_txt = (self.padrao or "")
+        tipo = self.tipo_padrao
 
-    class Meta:
-        ordering = ["prioridade", "nome"]
+        if tipo == "exato":
+            desc_ok = desc.lower() == alvo_txt.lower()
+        elif tipo == "contem":
+            desc_ok = alvo_txt.lower() in desc.lower()
+        elif tipo == "inicia_com":
+            desc_ok = desc.lower().startswith(alvo_txt.lower())
+        elif tipo == "termina_com":
+            desc_ok = desc.lower().endswith(alvo_txt.lower())
+        elif tipo == "regex":
+            desc_ok = re.search(self.padrao, desc, re.I) is not None
+        else:
+            desc_ok = False
 
-    def __str__(self):
-        return self.nome
+        if not desc_ok:
+            return False
+
+        # ---- match por valor (ignorando sinal) ----
+        if self.tipo_valor == "nenhum":
+            return True
+        if self.valor is None:
+            return False
+
+        v = abs(Decimal(valor or 0))
+        alvo = abs(Decimal(self.valor))
+
+        if self.tipo_valor == "igual":
+            return v == alvo
+        elif self.tipo_valor == "maior":
+            return v > alvo
+        elif self.tipo_valor == "menor":
+            return v < alvo
+        return False
