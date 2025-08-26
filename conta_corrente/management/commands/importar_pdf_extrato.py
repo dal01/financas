@@ -7,6 +7,7 @@ import hashlib
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.conf import settings
 
 import pdfplumber
 
@@ -26,8 +27,8 @@ LINE_RE = re.compile(
 )
 
 # Cabeçalho presente no seu PDF (ajuste se variar)
-# "Conta: 00002 | 3701 | 000584985168-9"
 CAB_RE = re.compile(r"Conta:\s*\S+\s*\|\s*(?P<ag>\d+)\s*\|\s*(?P<conta>[\d\-\.]+)")
+
 
 def br_money_to_decimal(txt: str) -> Decimal:
     if txt is None:
@@ -38,16 +39,20 @@ def br_money_to_decimal(txt: str) -> Decimal:
     except Exception:
         return Decimal("0")
 
+
 def parse_data_br(d: str) -> date:
     return datetime.strptime(d, "%d/%m/%Y").date()
+
 
 def fitid_from_fields(data: date, doc: str, hist: str, valor: Decimal) -> str:
     base = f"{data.isoformat()}|{doc}|{(hist or '').strip()}|{valor:.2f}"
     digest = hashlib.sha1(base.encode("utf-8")).hexdigest()[:28]
     return f"PDF{digest}"
 
+
 def normaliza_historico(hist: str) -> str:
     return re.sub(r"\s+", " ", hist or "").strip()[:255]
+
 
 def detecta_linha_extrato(line: str) -> dict | None:
     m = LINE_RE.match(line.strip())
@@ -58,7 +63,7 @@ def detecta_linha_extrato(line: str) -> dict | None:
     nr_doc = m.group("doc")
     hist = normaliza_historico(m.group("hist"))
     valor = br_money_to_decimal(m.group("valor"))
-    cd = m.group("valor_cd")  # 'C' (crédito) ou 'D' (débito)
+    cd = m.group("valor_cd")
     saldo = br_money_to_decimal(m.group("saldo"))
 
     if cd.upper() == "D" and valor > 0:
@@ -72,6 +77,7 @@ def detecta_linha_extrato(line: str) -> dict | None:
         "saldo": saldo,
     }
 
+
 def ler_linhas_pdf(caminho: Path) -> list[str]:
     linhas: list[str] = []
     with pdfplumber.open(str(caminho)) as pdf:
@@ -83,6 +89,7 @@ def ler_linhas_pdf(caminho: Path) -> list[str]:
                     linhas.append(line)
     return linhas
 
+
 def inferir_agencia_conta(linhas: list[str]) -> tuple[str | None, str | None]:
     for li in linhas[:40]:
         m = CAB_RE.search(li)
@@ -90,11 +97,8 @@ def inferir_agencia_conta(linhas: list[str]) -> tuple[str | None, str | None]:
             return m.group("ag"), m.group("conta")
     return None, None
 
+
 def iter_lancamentos(linhas: list[str]):
-    """
-    Gera dicts de lançamentos a partir das linhas do PDF.
-    Ignora cabeçalhos/rodapés comuns e 'SALDO DIA'.
-    """
     for li in linhas:
         lli = li.lower()
         if lli.startswith("extrato") or "ouvidoria" in lli or "sac caixa" in lli:
@@ -103,7 +107,7 @@ def iter_lancamentos(linhas: list[str]):
             continue
         if lli.startswith("data mov.") or lli.startswith("data mov"):
             continue
-        if "saldo dia" in lli:  # linha de saldo do dia
+        if "saldo dia" in lli:
             continue
 
         parsed = detecta_linha_extrato(li)
@@ -111,13 +115,9 @@ def iter_lancamentos(linhas: list[str]):
             yield parsed
 
 
-# ===== Regras de Membro (cache e aplicação) =====
+# ===== Regras de Membro =====
 
 def _carregar_regras_membro():
-    """
-    Carrega regras ativas ordenadas por prioridade. Retorna uma lista de dicts:
-    {'tipo': str, 'padrao': str, 'padrao_low': str, 'regex': Pattern|None, 'membro_ids': [int,...]}
-    """
     regras = []
     for r in RegraMembro.objects.filter(ativo=True).order_by("prioridade").prefetch_related("membros"):
         item = {
@@ -131,16 +131,12 @@ def _carregar_regras_membro():
             try:
                 item["regex"] = re.compile(r.padrao, flags=re.IGNORECASE)
             except re.error:
-                item["regex"] = None  # ignora regex inválida
+                item["regex"] = None
         regras.append(item)
     return regras
 
+
 def _aplicar_regras_membro_se_vazio(transacao: Transacao, regras_cache) -> bool:
-    """
-    Aplica a primeira regra que casar com a descrição apenas se a transação
-    ainda NÃO tem membros. Não sobrescreve edições manuais.
-    Retorna True se aplicou alguma regra.
-    """
     if not hasattr(transacao, "membros"):
         return False
     if transacao.membros.exists():
@@ -153,11 +149,11 @@ def _aplicar_regras_membro_se_vazio(transacao: Transacao, regras_cache) -> bool:
     desc_low = desc.lower()
     for r in regras_cache:
         ok = (
-            (r["tipo"] == "exato"       and desc_low == r["padrao_low"]) or
-            (r["tipo"] == "contem"      and r["padrao_low"] in desc_low) or
-            (r["tipo"] == "inicia_com"  and desc_low.startswith(r["padrao_low"])) or
+            (r["tipo"] == "exato" and desc_low == r["padrao_low"]) or
+            (r["tipo"] == "contem" and r["padrao_low"] in desc_low) or
+            (r["tipo"] == "inicia_com" and desc_low.startswith(r["padrao_low"])) or
             (r["tipo"] == "termina_com" and desc_low.endswith(r["padrao_low"])) or
-            (r["tipo"] == "regex"       and r["regex"] is not None and r["regex"].search(desc) is not None)
+            (r["tipo"] == "regex" and r["regex"] is not None and r["regex"].search(desc) is not None)
         )
         if ok and r["membro_ids"]:
             transacao.membros.add(*r["membro_ids"])
@@ -167,38 +163,24 @@ def _aplicar_regras_membro_se_vazio(transacao: Transacao, regras_cache) -> bool:
 
 # ===== Comando =====
 
+DEFAULT_PASTA_BASE = Path(settings.BASE_DIR).parent / "data" / "conta_corrente" / "dalton" / "2025"
+
 class Command(BaseCommand):
     help = "Importa extratos bancários em PDF (texto) a partir de um arquivo ou de uma pasta por código de instituição."
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--codigo",
-            help="Código da instituição financeira (ex.: cx, bb, itau, nubank). Se informado, lê PDFs da pasta-base/codigo",
-        )
+        parser.add_argument("--codigo", help="Código da instituição financeira (ex.: cx, bb, itau, nubank)")
         parser.add_argument(
             "--pasta-base",
-            default=str(Path("conta_corrente") / "data"),
-            help="Pasta base onde estão as subpastas por instituição (default: conta_corrente/data)",
+            default=str(DEFAULT_PASTA_BASE),
+            help="Pasta base onde estão as subpastas por instituição (default ajustado)",
         )
-        parser.add_argument(
-            "--arquivo",
-            help="(Opcional) Caminho para um único PDF. Se informado, ignora --codigo/--pasta-base",
-        )
-        parser.add_argument(
-            "--conta-numero",
-            help="(Opcional) Número da conta (para vincular). Se ausente, tenta inferir do PDF.",
-        )
-        parser.add_argument(
-            "--agencia",
-            help="(Opcional) Agência; utilizada ao criar a conta automaticamente.",
-        )
-        parser.add_argument(
-            "--titular",
-            default="desconhecido",
-            help="Titular para criação automática de conta (default: desconhecido).",
-        )
+        parser.add_argument("--arquivo", help="(Opcional) Caminho para um único PDF. Ignora --codigo/--pasta-base")
+        parser.add_argument("--conta-numero", help="(Opcional) Número da conta (para vincular)")
+        parser.add_argument("--agencia", help="(Opcional) Agência (para criação da conta)")
+        parser.add_argument("--titular", default="desconhecido", help="Titular padrão para conta criada")
         parser.add_argument("--dry-run", action="store_true", help="Simula sem gravar")
-        parser.add_argument("--reset", action="store_true", help="Apaga lançamentos da conta antes de importar (uma vez por conta)")
+        parser.add_argument("--reset", action="store_true", help="Apaga lançamentos da conta antes de importar")
 
     def handle(self, *args, **opts):
         arquivo = opts.get("arquivo")
@@ -210,6 +192,9 @@ class Command(BaseCommand):
         dry_run = opts["dry_run"]
         do_reset = opts["reset"]
 
+        if not pasta_base.exists():
+            raise CommandError(f"Pasta base não encontrada: {pasta_base}")
+
         arquivos: list[Path] = []
 
         if arquivo:
@@ -217,9 +202,8 @@ class Command(BaseCommand):
             if not p.exists():
                 raise CommandError(f"Arquivo não encontrado: {p}")
             arquivos = [p]
-            # Se veio arquivo único, precisa do código só para vincular à instituição
             if not codigo:
-                raise CommandError("--codigo é obrigatório quando usa --arquivo (para achar a Instituição).")
+                raise CommandError("--codigo é obrigatório quando usa --arquivo")
         else:
             if not codigo:
                 raise CommandError("Informe --codigo ou --arquivo.")
@@ -231,23 +215,15 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"⚠ Nenhum PDF encontrado em {pasta}"))
                 return
 
-        # Instituição
         try:
             inst = InstituicaoFinanceira.objects.get(codigo__iexact=codigo)
         except InstituicaoFinanceira.DoesNotExist:
             raise CommandError(f"Inexistente: Instituição '{codigo}'")
 
-        total_arquivos = 0
-        total_linhas_lidas = 0
-        total_proc = 0
-        total_novos = 0
-        total_atualizados = 0
-        total_nao_casou = 0
-
-        # Para aplicar reset só uma vez por conta
+        total_arquivos = total_linhas_lidas = total_proc = 0
+        total_novos = total_atualizados = total_nao_casou = 0
         contas_resetadas: set[int] = set()
 
-        # Regras (cache uma vez)
         regras_cache = _carregar_regras_membro()
 
         for caminho_pdf in arquivos:
@@ -272,13 +248,11 @@ class Command(BaseCommand):
                 defaults={"titular": titular, "agencia": agencia_final},
             )
 
-            # Reset uma única vez por conta
             if do_reset and not dry_run and conta.id not in contas_resetadas:
                 apagados, _ = Transacao.objects.filter(conta=conta).delete()
                 contas_resetadas.add(conta.id)
                 self.stdout.write(self.style.WARNING(f"🧹 Lançamentos apagados da conta {numero_conta}: {apagados}"))
 
-            # Processar lançamentos
             reconhecidas_este_pdf = 0
             for parsed in iter_lancamentos(linhas):
                 reconhecidas_este_pdf += 1
@@ -307,11 +281,9 @@ class Command(BaseCommand):
                         },
                     )
 
-                # Aplica regra somente se ainda não há membros (não sobrescreve edições)
                 try:
                     _aplicar_regras_membro_se_vazio(obj, regras_cache)
                 except Exception:
-                    # não interrompe importação por erro de regra
                     pass
 
                 if created:
@@ -320,7 +292,6 @@ class Command(BaseCommand):
                     total_atualizados += 1
                 total_proc += 1
 
-            # Estatística de reconhecimento por arquivo
             total_nao_casou += max(0, len(linhas) - reconhecidas_este_pdf)
 
         resumo = (
