@@ -6,19 +6,17 @@
   <div class="d-flex align-items-center mb-3">
     <h1 class="h4 mb-0">Transações</h1>
     <div class="ms-3 d-flex align-items-center gap-2 flex-wrap">
-      {% if ano and mes %}
-        <span class="badge text-bg-primary">Período: {{ ano }}-{{ mes|stringformat:"02d" }}</span>
+      {% if periodo %}
+        <span class="badge text-bg-primary">Período: {{ periodo }}</span>
       {% elif ano %}
         <span class="badge text-bg-primary">Ano: {{ ano }}</span>
-      {% else %}
-        <span class="badge text-bg-secondary">Sem filtro de período</span>
       {% endif %}
       {% if conta %}
         <span class="badge text-bg-info">Conta: {{ conta.instituicao.nome }} - {{ conta.numero }}</span>
       {% endif %}
-      {% if transacoes_ocultas %}
+      {% if itens_ocultas %}
         <span class="badge text-bg-warning" title="Transações separadas por regras de ocultação">
-          Ignoradas: {{ transacoes_ocultas|length }}
+          Ignoradas: {{ itens_ocultas|length }}
         </span>
       {% endif %}
     </div>
@@ -58,11 +56,16 @@
 
     <div class="col-12 col-sm-auto">
       <select class="form-select" name="periodo">
-        <option value="">-- Últimos meses --</option>
+        <option value="">-- Mês específico --</option>
         {% for m in ultimos_meses %}
           <option value="{{ m.value }}" {% if periodo == m.value %}selected{% endif %}>{{ m.label }}</option>
         {% endfor %}
       </select>
+    </div>
+
+    <div class="col-12 col-sm-2">
+      <input type="number" min="2000" max="2099" step="1" class="form-control"
+             name="ano" value="{{ ano|default:hoje.year }}" placeholder="Ano">
     </div>
 
     <div class="col-12 col-sm-4">
@@ -88,92 +91,109 @@
     </div>
   </form>
 
-  <!-- Agrupar visíveis por instituição -->
-  {% regroup transacoes by inst_nome_norm as grupos_visiveis %}
+  {# ============ AGRUPAMENTO VISÍVEIS: Membro → Instituição → Conta ============ #}
+  {% if itens %}
+    {% regroup itens by membro_nome as grupos_membro %}
+    {% for gm in grupos_membro %}
+      <div class="d-flex align-items-center mt-4 mb-2">
+        <h4 class="mb-0">{{ gm.grouper }}</h4>
+        <hr class="flex-grow-1 ms-3">
+      </div>
 
-  {% for grupo in grupos_visiveis %}
-    <div class="d-flex align-items-center mt-4 mb-2">
-      <h5 class="mb-0">{{ grupo.list.0.conta.instituicao.nome }}</h5>
-      <hr class="flex-grow-1 ms-3">
-    </div>
+      {% regroup gm.list by inst_nome_norm as grupos_inst %}
+      {% for gi in grupos_inst %}
+        <div class="d-flex align-items-center mt-2 mb-2">
+          <h5 class="mb-0">{{ gi.list.0.inst_titulo }}</h5>
+          <hr class="flex-grow-1 ms-3">
+        </div>
 
-    <div class="table-responsive">
-      <table class="table table-sm align-middle">
-        <thead>
-          <tr>
-            <th>Data</th>
-            <th>Descrição</th>
-            <th class="text-end">Valor</th>
-            <th>Conta</th>
-            <th>Membros</th>
-            <th style="width:1%">Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for t in grupo.list %}
-            <tr>
-              <td>{{ t.data|date:"Y-m-d" }}</td>
-              <td>{{ t.descricao }}</td>
-              <td class="text-end {% if t.valor > 0 %}text-success{% elif t.valor < 0 %}text-danger{% endif %}">
-                {{ t.valor|moeda_brasileira }}
-              </td>
-              <td>{{ t.conta.numero }}</td>
+        {% regroup gi.list by conta_numero as grupos_conta %}
+        {% for gc in grupos_conta %}
+          <div class="d-flex align-items-center mt-2 mb-1">
+            <div class="badge text-bg-info">Conta {{ gc.grouper }}</div>
+            <span class="text-muted small ms-2">({{ gc.list|length }} itens)</span>
+          </div>
 
-              <!-- Coluna de Membros: botão "Todos" + tags -->
-              <td class="text-wrap">
-                <div class="d-flex flex-wrap gap-2">
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Descrição</th>
+                  <th class="text-end">Valor</th>
+                  <th>Membros</th>
+                  <th style="width:1%">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in gc.list %}
+                  {% with t=item.t %}
+                  <tr>
+                    <td>{{ t.data|date:"Y-m-d" }}</td>
+                    <td>{{ t.descricao }}</td>
+                    <td class="text-end {% if t.valor > 0 %}text-success{% elif t.valor < 0 %}text-danger{% endif %}">
+                      {{ t.valor|moeda_brasileira }}
+                    </td>
 
-                  <!-- Botão TODOS (azul quando todos atribuídos; branco-borda-azul quando não) -->
-                  <form method="post" action="{% url 'conta_corrente:transacao_toggle_membro' %}" class="d-inline">
-                    {% csrf_token %}
-                    <input type="hidden" name="transacao_id" value="{{ t.id }}">
-                    <input type="hidden" name="membro_id" value="todos">
-                    <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-                    {% if t.membros.all|length == membros|length and membros|length > 0 %}
-                      <button class="btn btn-sm rounded-pill px-2 py-0 btn-primary" title="Remover todos">Todos</button>
-                    {% else %}
-                      <button class="btn btn-sm rounded-pill px-2 py-0 btn-outline-primary" title="Atribuir todos">Todos</button>
-                    {% endif %}
-                  </form>
+                    <!-- Coluna de Membros: botão "Todos" + tags -->
+                    <td class="text-wrap">
+                      <div class="d-flex flex-wrap gap-2">
+                        <!-- Botão TODOS -->
+                        <form method="post" action="{% url 'conta_corrente:transacao_toggle_membro' %}" class="d-inline">
+                          {% csrf_token %}
+                          <input type="hidden" name="transacao_id" value="{{ t.id }}">
+                          <input type="hidden" name="membro_id" value="todos">
+                          <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
+                          {% if t.membros.all|length == membros|length and membros|length > 0 %}
+                            <button class="btn btn-sm rounded-pill px-2 py-0 btn-primary" title="Remover todos">Todos</button>
+                          {% else %}
+                            <button class="btn btn-sm rounded-pill px-2 py-0 btn-outline-primary" title="Atribuir todos">Todos</button>
+                          {% endif %}
+                        </form>
 
-                  <!-- Tags por membro -->
-                  {% for m in membros %}
-                    <form method="post" action="{% url 'conta_corrente:transacao_toggle_membro' %}" class="d-inline">
-                      {% csrf_token %}
-                      <input type="hidden" name="transacao_id" value="{{ t.id }}">
-                      <input type="hidden" name="membro_id" value="{{ m.id }}">
-                      <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-                      <button type="submit"
-                        class="btn btn-sm rounded-pill px-2 py-0 {% if m in t.membros.all %}btn-primary{% else %}btn-outline-primary{% endif %}"
-                        title="{% if m in t.membros.all %}Remover{% else %}Adicionar{% endif %} {{ m.nome }}">
-                        {{ m.nome }}
-                      </button>
-                    </form>
-                  {% empty %}
-                    <span class="text-muted small">Sem membros cadastrados</span>
-                  {% endfor %}
-                </div>
-              </td>
+                        <!-- Tags por membro -->
+                        {% for m in membros %}
+                          <form method="post" action="{% url 'conta_corrente:transacao_toggle_membro' %}" class="d-inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="transacao_id" value="{{ t.id }}">
+                            <input type="hidden" name="membro_id" value="{{ m.id }}">
+                            <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
+                            <button type="submit"
+                              class="btn btn-sm rounded-pill px-2 py-0 {% if m in t.membros.all %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                              title="{% if m in t.membros.all %}Remover{% else %}Adicionar{% endif %} {{ m.nome }}">
+                              {{ m.nome }}
+                            </button>
+                          </form>
+                        {% empty %}
+                          <span class="text-muted small">Sem membros cadastrados</span>
+                        {% endfor %}
+                      </div>
+                    </td>
 
-              <td class="text-nowrap">
-                <form method="post" action="{% url 'conta_corrente:transacao_toggle_oculta' t.id %}" class="d-inline">
-                  {% csrf_token %}
-                  <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-                  <button class="btn btn-sm btn-outline-secondary" title="Ocultar este lançamento">
-                    Ocultar
-                  </button>
-                </form>
-              </td>
-            </tr>
-          {% empty %}
-            <tr><td colspan="6" class="text-center text-muted">Nenhum lançamento encontrado.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% empty %}
+                    <!-- Ações -->
+                    <td class="text-nowrap">
+                      <form method="post" action="{% url 'conta_corrente:transacao_toggle_oculta' t.id %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
+                        <button class="btn btn-sm btn-outline-secondary" title="Ocultar este lançamento">
+                          Ocultar
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% endwith %}
+                {% empty %}
+                  <tr><td colspan="5" class="text-center text-muted">Nenhum lançamento nesta conta.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endfor %}
+      {% endfor %}
+    {% endfor %}
+  {% else %}
     <div class="text-muted">Sem transações para exibir.</div>
-  {% endfor %}
+  {% endif %}
 
   <!-- Paginação -->
   {% if page_obj.paginator.num_pages > 1 %}
@@ -181,7 +201,7 @@
       <ul class="pagination">
         {% if page_obj.has_previous %}
           <li class="page-item">
-            <a class="page-link" href="?{% if conta_id %}conta={{ conta_id }}&{% endif %}{% if periodo %}periodo={{ periodo }}&{% endif %}{% if q %}q={{ q|urlencode }}&{% endif %}ord={{ ord }}&pagina={{ page_obj.previous_page_number }}">Anterior</a>
+            <a class="page-link" href="?{% if conta_id %}conta={{ conta_id }}&{% endif %}{% if periodo %}periodo={{ periodo }}&{% endif %}{% if ano %}ano={{ ano }}&{% endif %}{% if q %}q={{ q|urlencode }}&{% endif %}ord={{ ord }}&pagina={{ page_obj.previous_page_number }}">Anterior</a>
           </li>
         {% else %}
           <li class="page-item disabled"><span class="page-link">Anterior</span></li>
@@ -193,7 +213,7 @@
 
         {% if page_obj.has_next %}
           <li class="page-item">
-            <a class="page-link" href="?{% if conta_id %}conta={{ conta_id }}&{% endif %}{% if periodo %}periodo={{ periodo }}&{% endif %}{% if q %}q={{ q|urlencode }}&{% endif %}ord={{ ord }}&pagina={{ page_obj.next_page_number }}">Próxima</a>
+            <a class="page-link" href="?{% if conta_id %}conta={{ conta_id }}&{% endif %}{% if periodo %}periodo={{ periodo }}&{% endif %}{% if ano %}ano={{ ano }}&{% endif %}{% if q %}q={{ q|urlencode }}&{% endif %}ord={{ ord }}&pagina={{ page_obj.next_page_number }}">Próxima</a>
           </li>
         {% else %}
           <li class="page-item disabled"><span class="page-link">Próxima</span></li>
@@ -202,76 +222,91 @@
     </nav>
   {% endif %}
 
-  <!-- Seção: Ignoradas pelas regras -->
-  {% if transacoes_ocultas %}
+  {# ============ AGRUPAMENTO OCULTAS: Instituição → Membro → Conta ============ #}
+  {% if itens_ocultas %}
     <hr class="my-4">
     <h5 class="mb-3">Ignoradas pelas regras</h5>
 
-    {% regroup transacoes_ocultas by inst_nome_norm as grupos_ocultas %}
-    {% for grupo in grupos_ocultas %}
-      <div class="d-flex align-items-center mt-3 mb-2">
-        <div class="badge text-bg-warning me-2">{{ grupo.list.0.conta.instituicao.nome }}</div>
-        <span class="text-muted small">({{ grupo.list|length }} itens)</span>
+    {% regroup itens_ocultas by inst_nome_norm as grupos_inst_o %}
+    {% for gi in grupos_inst_o %}
+      <div class="d-flex align-items-center mt-2 mb-2">
+        <h5 class="mb-0">{{ gi.list.0.inst_titulo }}</h5>
+        <hr class="flex-grow-1 ms-3">
       </div>
 
-      <div class="table-responsive">
-        <table class="table table-sm align-middle table-bordered">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Descrição</th>
-              <th class="text-end">Valor</th>
-              <th>Conta</th>
-              <th>Membros</th>
-              <th style="width:1%">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for t in grupo.list %}
-              <tr class="text-muted">
-                <td>{{ t.data|date:"Y-m-d" }}</td>
-                <td>{{ t.descricao }}</td>
-                <td class="text-end {% if t.valor > 0 %}text-success{% elif t.valor < 0 %}text-danger{% endif %}">
-                  {{ t.valor|moeda_brasileira }}
-                </td>
-                <td>{{ t.conta.numero }}</td>
-                <td>
-                  <div class="d-flex flex-wrap gap-2">
-                    {% if t.membros.all|length == membros|length and membros|length > 0 %}
-                      <span class="badge rounded-pill text-bg-primary">Todos</span>
-                    {% else %}
-                      <span class="badge rounded-pill text-bg-light border border-primary text-primary">Todos</span>
-                    {% endif %}
+      {% regroup gi.list by membro_nome as grupos_membro_o %}
+      {% for gm in grupos_membro_o %}
+        <div class="d-flex align-items-center mt-2 mb-1">
+          <div class="badge text-bg-warning">{{ gm.grouper }}</div>
+          <span class="text-muted small ms-2">({{ gm.list|length }} itens no membro)</span>
+        </div>
 
-                    {% for m in membros %}
-                      {% if m in t.membros.all %}
-                        <span class="badge rounded-pill text-bg-primary">{{ m.nome }}</span>
+        {% regroup gm.list by conta_numero as grupos_conta_o %}
+        {% for gc in grupos_conta_o %}
+          <div class="d-flex align-items-center mt-1 mb-1">
+            <div class="badge text-bg-info">Conta {{ gc.grouper }}</div>
+            <span class="text-muted small ms-2">({{ gc.list|length }} itens)</span>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-sm align-middle table-bordered">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Descrição</th>
+                  <th class="text-end">Valor</th>
+                  <th>Membros</th>
+                  <th style="width:1%">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in gc.list %}
+                  {% with t=item.t %}
+                  <tr class="text-muted">
+                    <td>{{ t.data|date:"Y-m-d" }}</td>
+                    <td>{{ t.descricao }}</td>
+                    <td class="text-end {% if t.valor > 0 %}text-success{% elif t.valor < 0 %}text-danger{% endif %}">
+                      {{ t.valor|moeda_brasileira }}
+                    </td>
+                    <td>
+                      <div class="d-flex flex-wrap gap-2">
+                        {% if t.membros.all|length == membros|length and membros|length > 0 %}
+                          <span class="badge rounded-pill text-bg-primary">Todos</span>
+                        {% else %}
+                          <span class="badge rounded-pill text-bg-light border border-primary text-primary">Todos</span>
+                        {% endif %}
+                        {% for m in membros %}
+                          {% if m in t.membros.all %}
+                            <span class="badge rounded-pill text-bg-primary">{{ m.nome }}</span>
+                          {% else %}
+                            <span class="badge rounded-pill text-bg-light border border-primary text-primary">{{ m.nome }}</span>
+                          {% endif %}
+                        {% empty %}
+                          <span class="text-muted small">Sem membros cadastrados</span>
+                        {% endfor %}
+                      </div>
+                    </td>
+                    <td>
+                      {% if t.oculta_manual %}
+                        <form method="post" action="{% url 'conta_corrente:transacao_toggle_oculta' t.id %}">
+                          {% csrf_token %}
+                          <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
+                          <button class="btn btn-sm btn-outline-primary" title="Reexibir este lançamento">
+                            Reexibir
+                          </button>
+                        </form>
                       {% else %}
-                        <span class="badge rounded-pill text-bg-light border border-primary text-primary">{{ m.nome }}</span>
+                        <span class="text-muted small" title="Ocultada por regra">por regra</span>
                       {% endif %}
-                    {% empty %}
-                      <span class="text-muted small">Sem membros cadastrados</span>
-                    {% endfor %}
-                  </div>
-                </td>
-                <td>
-                  {% if t.oculta_manual %}
-                    <form method="post" action="{% url 'conta_corrente:transacao_toggle_oculta' t.id %}">
-                      {% csrf_token %}
-                      <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-                      <button class="btn btn-sm btn-outline-primary" title="Reexibir este lançamento">
-                        Reexibir
-                      </button>
-                    </form>
-                  {% else %}
-                    <span class="text-muted small" title="Ocultada por regra">por regra</span>
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+                    </td>
+                  </tr>
+                  {% endwith %}
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endfor %}
+      {% endfor %}
     {% endfor %}
   {% endif %}
 </div>
