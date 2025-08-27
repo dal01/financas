@@ -1,7 +1,6 @@
-# conta_corrente/views/resumo_mensal.py
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
-from collections import defaultdict, OrderedDict
+from collections import OrderedDict
 
 from django.db.models import Q, Sum
 from django.db.models.functions import TruncMonth
@@ -174,7 +173,7 @@ def resumo_mensal(request):
         .order_by("conta__membro__nome", "conta__instituicao__nome", "conta__numero")
     )
 
-    # Estrutura hierárquica: membro -> [contas] + totais do membro
+    # Estrutura hierárquica: membro -> [contas] + totais do membro + % poupado do membro
     por_membro = OrderedDict()
     for row in agg_membro_conta:
         membro_id = row["conta__membro__id"] or 0
@@ -206,6 +205,23 @@ def resumo_mensal(request):
         por_membro[membro_id]["totais"]["saidas"] += s
         por_membro[membro_id]["totais"]["saldo"] += t
 
+    # Calcula % poupado por membro (e clamp 0–100)
+    for m in por_membro.values():
+        ent = m["totais"]["entradas"]
+        sal = m["totais"]["saldo"]
+        if ent != 0:
+            pct = (sal / ent * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        else:
+            pct = Decimal("0.00")
+        if pct < 0:
+            pct_clamp = Decimal("0.00")
+        elif pct > 100:
+            pct_clamp = Decimal("100.00")
+        else:
+            pct_clamp = pct
+        m["poupado_pct"] = pct
+        m["poupado_pct_clamp"] = pct_clamp
+
     # Payload comum (JSON)
     payload = {
         "inicio": start.strftime("%Y-%m"),
@@ -232,6 +248,8 @@ def resumo_mensal(request):
                     "saidas": str(m["totais"]["saidas"]),
                     "saldo": str(m["totais"]["saldo"]),
                 },
+                "poupado_pct": str(m["poupado_pct"]),
+                "poupado_pct_clamp": str(m["poupado_pct_clamp"]),
                 "contas": [
                     {
                         "conta_id": c["conta_id"],
@@ -276,6 +294,8 @@ def resumo_mensal(request):
                     "saidas": m["totais"]["saidas"],
                     "saldo": m["totais"]["saldo"],
                 },
+                "poupado_pct": m["poupado_pct"],
+                "poupado_pct_clamp": m["poupado_pct_clamp"],
                 "contas": m["contas"],
             }
             for m in por_membro.values()

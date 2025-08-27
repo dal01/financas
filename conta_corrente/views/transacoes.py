@@ -55,9 +55,6 @@ def listar_transacoes(request):
         qs = qs.filter(conta=conta)
 
     # -------- Filtro de período --------
-    # 1) Se veio periodo=YYYY-MM, filtra o mês
-    # 2) Senão, se veio ano (e opcionalmente mes), filtra por ano(/mês)
-    # 3) Senão, por padrão filtra ANO ATUAL
     ano_int = mes_int = None
     if periodo:
         try:
@@ -110,22 +107,39 @@ def listar_transacoes(request):
         else:
             transacoes_visiveis.append(t)
 
-    # -------- Totais (nível transação; não duplica por membro) --------
+    # -------- Totais gerais (nível transação; não duplica por membro) --------
     entradas = sum((t.valor for t in transacoes_visiveis if t.valor > 0), Decimal("0"))
     saidas = sum((t.valor for t in transacoes_visiveis if t.valor < 0), Decimal("0"))
     total = entradas + saidas
 
-    # -------- EXPANSÃO PARA EXIBIÇÃO (Visíveis): Membro da CONTA --------
+    # -------- Totais por MEMBRO DA CONTA (sem rateio; ignora t.membros) --------
+    # chave = nome do membro da CONTA (ou "(Sem membro)")
+    totais_por_membro = {}
+    for t in transacoes_visiveis:
+        m = t.conta.membro if t.conta else None
+        nome = m.nome if m else "(Sem membro)"
+        agg = totais_por_membro.setdefault(
+            nome, {"entradas": Decimal("0"), "saidas": Decimal("0"), "total": Decimal("0")}
+        )
+        if t.valor > 0:
+            agg["entradas"] += t.valor
+        elif t.valor < 0:
+            agg["saidas"] += t.valor
+        agg["total"] += t.valor
+
+    # -------- EXPANSÃO PARA EXIBIÇÃO (Visíveis): injeta 'm_totais' por item --------
     itens_visiveis = []
     for t in transacoes_visiveis:
         inst_nome = t.conta.instituicao.nome if t.conta and t.conta.instituicao else ""
         inst_norm = _norm_nome_inst(inst_nome)
         m = t.conta.membro if t.conta else None
+        membro_nome = m.nome if m else "(Sem membro)"
         itens_visiveis.append({
-            "membro_nome": m.nome if m else "(Sem membro)",
+            "membro_nome": membro_nome,
             "inst_nome_norm": inst_norm,
             "inst_titulo": inst_nome,
             "conta_numero": t.conta.numero if t.conta else "",
+            "m_totais": totais_por_membro.get(membro_nome, {"entradas": Decimal("0"), "saidas": Decimal("0"), "total": Decimal("0")}),
             "t": t,
         })
 
@@ -139,7 +153,7 @@ def listar_transacoes(request):
     else:  # mais_novo
         itens_visiveis.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], -x["t"].data.toordinal(), -x["t"].id))
 
-    # -------- EXPANSÃO PARA EXIBIÇÃO (Ocultas): mesmo agrupamento --------
+    # -------- EXPANSÃO PARA EXIBIÇÃO (Ocultas): igual às visíveis (sem m_totais necessário) --------
     itens_ocultas = []
     for t in transacoes_ocultas:
         inst_nome = t.conta.instituicao.nome if t.conta and t.conta.instituicao else ""
@@ -152,16 +166,6 @@ def listar_transacoes(request):
             "conta_numero": t.conta.numero if t.conta else "",
             "t": t,
         })
-
-    # Ordenação igual à das visíveis
-    if ord_param == "mais_velho":
-        itens_ocultas.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], x["t"].data, x["t"].id))
-    elif ord_param == "maior_valor":
-        itens_ocultas.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], -x["t"].valor, x["t"].data))
-    elif ord_param == "menor_valor":
-        itens_ocultas.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], x["t"].valor, x["t"].data))
-    else:  # mais_novo
-        itens_ocultas.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], -x["t"].data.toordinal(), -x["t"].id))
 
     # -------- Paginação (somente nos visíveis) --------
     paginator = Paginator(itens_visiveis, 50)

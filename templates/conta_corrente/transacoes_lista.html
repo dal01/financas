@@ -22,8 +22,8 @@
     </div>
   </div>
 
-  <!-- Resumo -->
-  <div class="row g-3 mb-4">
+  <!-- Resumo geral -->
+  <div class="row g-3 mb-3">
     <div class="col-12 col-md-4">
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body">
@@ -99,6 +99,36 @@
         <h4 class="mb-0">{{ gm.grouper }}</h4>
         <hr class="flex-grow-1 ms-3">
       </div>
+
+      {# --- Cards resumo por membro (dados já vêm prontos da view em gm.list.0.m_totais) --- #}
+      {% with tm=gm.list.0.m_totais %}
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-md-4">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+              <div class="text-secondary small">Entradas</div>
+              <div class="fs-5 fw-semibold text-success">{{ tm.entradas|moeda_brasileira }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-md-4">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+              <div class="text-secondary small">Saídas</div>
+              <div class="fs-5 fw-semibold text-danger">{{ tm.saidas|moeda_brasileira }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-md-4">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+              <div class="text-secondary small">Saldo</div>
+              <div class="fs-5 fw-semibold">{{ tm.total|moeda_brasileira }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endwith %}
 
       {% regroup gm.list by inst_nome_norm as grupos_inst %}
       {% for gi in grupos_inst %}
