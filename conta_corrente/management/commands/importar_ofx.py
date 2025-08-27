@@ -11,12 +11,19 @@ from io import BytesIO
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from django.conf import settings  # <<-- usado para DADOS_DIR
+from django.conf import settings  # usado para DADOS_DIR
 from ofxparse import OfxParser
 
-from core.models import InstituicaoFinanceira
+from core.models import InstituicaoFinanceira, Membro
 from conta_corrente.models import Conta, Transacao
 from conta_corrente.models import RegraMembro
+
+try:
+    from unidecode import unidecode
+except Exception:
+    # fallback simples se unidecode não estiver instalado (recomendo manter unidecode)
+    def unidecode(s: str) -> str:
+        return s
 
 
 # ---------------------------
@@ -95,7 +102,7 @@ def preprocess_ofx(content_bytes: bytes) -> bytes:
 
 
 # ---------------------------
-# Helpers de FITID/descrição
+# Helpers
 # ---------------------------
 def _compose_descricao(tx) -> str:
     """
@@ -132,13 +139,42 @@ def _fitid_unique_real(original_fitid: str, data: date, valor: Decimal) -> str:
     """
     Sufixa o FITID quando há colisão com data/valor diferentes (bancos reaproveitam ids).
     """
-    # garante 2 casas e inteiro de centavos estável
     cents = int((valor.copy_abs().quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) * 100))
     base = original_fitid or "NOFITID"
     return f"{base}__{data:%Y%m%d}_{cents}"
 
 
-# === NOVO: carregar e aplicar regras de membros ===============================
+def _slug(s: str) -> str:
+    s = unidecode((s or "").strip().lower())
+    return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+
+
+def _inferir_membro_por_pasta(pasta_base: Path) -> Membro | None:
+    """
+    Tenta inferir um Membro olhando os segmentos do caminho.
+    Ex.: .../conta_corrente/andrea/2025  -> 'andrea'
+    Casa contra slug do nome do Membro (sem acento/minúsculo).
+    """
+    # Mapa slug->Membro com base nos nomes atuais
+    membros = list(Membro.objects.all().only("id", "nome"))
+    mapa = { _slug(m.nome): m for m in membros }
+
+    # Ignorar tokens comuns
+    ignorar = {"conta-corrente", "conta_corrente", "ofx", "pdf", "dados", "data"}
+    # tokens do caminho, do fim pro começo (normalmente nome vem antes do ano)
+    for seg in reversed(pasta_base.parts):
+        tok = _slug(seg)
+        if not tok or tok in ignorar:
+            continue
+        # pular anos (4 dígitos)
+        if re.fullmatch(r"\d{4}", tok):
+            continue
+        if tok in mapa:
+            return mapa[tok]
+    return None
+
+
+# === Carregar e aplicar regras de membros (para Transacao.membros m2m) =======
 def _carregar_regras_membro():
     """
     Carrega regras ativas ordenadas por prioridade. Retorna lista de dicts:
@@ -190,7 +226,6 @@ def _aplicar_regras_membro_se_vazio(transacao: Transacao, regras_cache) -> bool:
             (r["tipo"] == "regex"       and r["regex"] is not None and r["regex"].search(desc) is not None)
         )
         if ok and r["membro_ids"]:
-            # adiciona membros; não limpa nada para permitir ajustes manuais futuros
             transacao.membros.add(*r["membro_ids"])
             return True
     return False
@@ -218,6 +253,7 @@ class Command(BaseCommand):
             pasta_base = settings.DADOS_DIR / pasta_base
         pasta_base = pasta_base.resolve()
 
+        # Pasta final onde realmente estão os OFX do banco
         pasta = pasta_base / codigo
         dry_run = opts["dry_run"]
         do_reset = opts["reset"]
@@ -229,6 +265,13 @@ class Command(BaseCommand):
             inst = InstituicaoFinanceira.objects.get(codigo__iexact=codigo)
         except InstituicaoFinanceira.DoesNotExist:
             raise CommandError(f"Inexistente: Instituição '{codigo}'")
+
+        # Inferir Membro pela pasta (ex.: .../andrea/2025)
+        membro_inferido = _inferir_membro_por_pasta(pasta_base)
+        if membro_inferido:
+            self.stdout.write(self.style.HTTP_INFO(f"👤 Membro inferido: {membro_inferido.nome}"))
+        else:
+            self.stdout.write(self.style.WARNING("⚠ Nenhum membro inferido pela pasta."))
 
         arquivos = sorted(pasta.rglob("*.ofx"))
         if not arquivos:
@@ -257,16 +300,36 @@ class Command(BaseCommand):
             contas = [c for c in contas if c is not None]
 
             for conta_ofx in contas:
+                # número/conta-id
                 numero = (
-                    (conta_ofx.number or getattr(conta_ofx, "account_id", "desconhecido"))
+                    (getattr(conta_ofx, "number", None) or getattr(conta_ofx, "account_id", "desconhecido"))
                     .strip()
                 )
 
-                conta, _ = Conta.objects.get_or_create(
+                # tentar agência a partir de campos comuns do ofxparse (nem sempre presente)
+                agencia = None
+                for candidate in ("branch_id", "routing_number", "bank_id"):
+                    val = getattr(conta_ofx, candidate, None)
+                    if val:
+                        agencia = str(val).strip() or None
+                        break
+
+                # criar/obter conta
+                conta, created_conta = Conta.objects.get_or_create(
                     instituicao=inst,
                     numero=numero,
-                    defaults={"titular": "desconhecido"},
+                    agencia=agencia,
+                    defaults={
+                        "tipo": "corrente",
+                        "membro": membro_inferido if membro_inferido else None,
+                    },
                 )
+
+                # Se a conta já existia sem membro e inferimos um, atualiza
+                if not created_conta and membro_inferido and conta.membro_id is None:
+                    conta.membro = membro_inferido
+                    conta.save(update_fields=["membro"])
+                    self.stdout.write(self.style.SUCCESS(f"🔗 Conta {numero}: membro setado para {membro_inferido.nome}"))
 
                 # RESET por conta (uma vez)
                 if do_reset and not dry_run and conta.id not in contas_resetadas:
@@ -275,7 +338,9 @@ class Command(BaseCommand):
                     contas_resetadas.add(conta.id)
 
                 # Importa transações
-                for tx in getattr(conta_ofx.statement, "transactions", []):
+                statement = getattr(conta_ofx, "statement", None)
+                txs = statement.transactions if statement else []
+                for tx in txs:
                     data = tx.date
                     if isinstance(data, datetime):
                         data = data.date()

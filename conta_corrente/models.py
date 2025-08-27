@@ -58,7 +58,7 @@ class Conta(models.Model):
 
 class Transacao(models.Model):
     conta = models.ForeignKey(Conta, on_delete=models.CASCADE, related_name="transacoes")
-    fitid = models.CharField(max_length=100, unique=True)
+    fitid = models.CharField(max_length=128, blank=True, null=True)
     data = models.DateField()
     descricao = models.CharField(max_length=255)
     valor = models.DecimalField(max_digits=12, decimal_places=2)
