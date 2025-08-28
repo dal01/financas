@@ -15,9 +15,11 @@ M2M_MEMBROS_FIELD = "membros"
 TRANSACAO_DATA_FIELD = "data"
 
 def _valor_despesa_conta_corrente(v: Decimal) -> Decimal:
+    # Despesa em conta corrente: valores negativos -> positivos (gasto)
     return -v if v < 0 else Decimal("0")
 
 def _valor_despesa_cartao(v: Decimal) -> Decimal:
+    # Despesa em cartão: valores positivos são gastos
     return v if v > 0 else Decimal("0")
 
 MESES_LABEL = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
@@ -40,10 +42,7 @@ def _distribui_por_membros(obj, valor_total: Decimal, matriz: Dict[int, List[Dec
         _add(matriz, m.id, mes_idx_0_11, quota)
 
 def _anos_disponiveis() -> List[int]:
-    """Coleta anos existentes nas tabelas (conta e cartão por fatura)."""
-    # Conta corrente via DateField
     anos_cc = [d.year for d in Transacao.objects.dates(TRANSACAO_DATA_FIELD, "year")]
-    # Cartão via fatura.competencia
     anos_cartao = list(
         Lancamento.objects
         .select_related("fatura")
@@ -56,13 +55,29 @@ def _anos_disponiveis() -> List[int]:
     return anos
 
 def _to_rows(matriz: Dict[int, List[Decimal]], membros: List[Membro]) -> List[dict]:
-    rows = []
+    rows: List[dict] = []
     for m in membros:
         mensal = matriz[m.id]
-        total = sum(mensal)
+        total = sum(mensal, Decimal("0"))
         rows.append({"membro": m, "mensal": mensal, "total": total})
     rows.sort(key=lambda r: r["total"], reverse=True)
     return rows
+
+def _footer_totais(matriz: Dict[int, List[Decimal]]) -> dict | None:
+    if not matriz:
+        return None
+    # soma por coluna (mês)
+    mensal = [Decimal("0")] * 12
+    for lista in matriz.values():
+        for i in range(12):
+            mensal[i] += lista[i]
+    total = sum(mensal, Decimal("0"))
+    return {"mensal": mensal, "total": total}
+
+def _pacote_tabela(matriz: Dict[int, List[Decimal]], membros: List[Membro]) -> dict:
+    rows = _to_rows(matriz, membros)
+    footer = _footer_totais(matriz) if rows else None
+    return {"rows": rows, "footer": footer}
 
 def resumo_anual(request):
     """
@@ -83,15 +98,15 @@ def resumo_anual(request):
     if not membros:
         return render(
             request,
-            "relatorio/resumo_anual.html",
+            "relatorios/resumo_anual.html",
             {
                 "app_ns": "relatorios",
                 "ano": ano,
                 "anos_disponiveis": anos,
                 "meses_label": MESES_LABEL,
-                "geral": {"rows": []},
-                "conta_corrente": {"rows": []},
-                "cartao_credito": {"rows": []},
+                "geral": {"rows": [], "footer": None},
+                "conta_corrente": {"rows": [], "footer": None},
+                "cartao_credito": {"rows": [], "footer": None},
             },
         )
 
@@ -124,7 +139,7 @@ def resumo_anual(request):
         .prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
     )
     for l in lancs:
-        if not l.fatura or not l.fatura.competencia:
+        if not getattr(l, "fatura", None) or not l.fatura.competencia:
             continue
         comp: date = l.fatura.competencia
         if comp.year != ano:
@@ -141,8 +156,8 @@ def resumo_anual(request):
         "ano": ano,
         "anos_disponiveis": anos,
         "meses_label": MESES_LABEL,
-        "geral": {"rows": _to_rows(matriz_geral, membros)},
-        "conta_corrente": {"rows": _to_rows(matriz_cc, membros)},
-        "cartao_credito": {"rows": _to_rows(matriz_cartao, membros)},
+        "geral": _pacote_tabela(matriz_geral, membros),
+        "conta_corrente": _pacote_tabela(matriz_cc, membros),
+        "cartao_credito": _pacote_tabela(matriz_cartao, membros),
     }
     return render(request, "relatorios/resumo_anual.html", contexto)
