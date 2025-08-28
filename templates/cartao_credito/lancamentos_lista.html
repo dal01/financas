@@ -1,253 +1,242 @@
-{% extends "base.html" %}
-{% load static formatadores %}
+{% load static %}
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <title>Lançamentos</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Bootstrap 5 (ajuste se já tiver no base.html) -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
 
-{% block title %}Lançamentos - Cartão de Crédito{% endblock %}
-
-{% block content %}
 <div class="container py-4">
-  <div class="d-flex align-items-center mb-3">
-    <h1 class="h4 mb-0">Cartão de Crédito — Lançamentos</h1>
-    <div class="ms-3 d-flex align-items-center gap-2 flex-wrap">
-      {% if ano and mes %}
-        <span class="badge text-bg-primary">Período: {{ ano }}-{{ mes|stringformat:"02d" }}</span>
-      {% else %}
-        <span class="badge text-bg-secondary">Sem filtro de período</span>
-      {% endif %}
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h4 mb-0">Lançamentos</h1>
+    <span class="badge text-bg-primary">Total: R$ {{ soma_valor|floatformat:2 }}</span>
+  </div>
+<!-- Cards de totais -->
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="card-title mb-0">Por Membro</h5>
+          <span class="badge text-bg-primary">Total: R$ {{ soma_valor|floatformat:2 }}</span>
+        </div>
+        <ul class="list-group list-group-flush">
+          {% for r in aggs.por_membro|slice:":6" %}
+            <li class="list-group-item d-flex justify-content-between">
+              <span>{{ r.fatura__cartao__membro__nome|default:"—" }}</span>
+              <strong>R$ {{ r.soma|floatformat:2 }}</strong>
+            </li>
+          {% empty %}
+            <li class="list-group-item text-muted">Sem dados</li>
+          {% endfor %}
+        </ul>
+      </div>
     </div>
   </div>
 
+  <div class="col-12 col-lg-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title mb-2">Por Instituição</h5>
+        <ul class="list-group list-group-flush">
+          {% for r in aggs.por_instituicao|slice:":6" %}
+            <li class="list-group-item d-flex justify-content-between">
+              <span>{{ r.fatura__cartao__instituicao__nome|default:"—" }}</span>
+              <strong>R$ {{ r.soma|floatformat:2 }}</strong>
+            </li>
+          {% empty %}
+            <li class="list-group-item text-muted">Sem dados</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title mb-2">Por Cartão</h5>
+        <ul class="list-group list-group-flush">
+          {% for r in aggs.por_cartao|slice:":6" %}
+            <li class="list-group-item d-flex justify-content-between">
+              <span>
+                {{ r.fatura__cartao__instituicao__nome|default:"—" }} • ****{{ r.fatura__cartao__cartao_final|default:"—" }}
+                {% if r.fatura__cartao__bandeira %} • {{ r.fatura__cartao__bandeira }}{% endif %}
+              </span>
+              <strong>R$ {{ r.soma|floatformat:2 }}</strong>
+            </li>
+          {% empty %}
+            <li class="list-group-item text-muted">Sem dados</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
   <!-- Filtros -->
-  <form class="row g-2 mb-3">
-    <div class="col-12 col-sm-auto">
-      <select class="form-select" name="periodo">
-        <option value="">-- Meses com lançamentos --</option>
-        {% for m in meses_disponiveis %}
-          <option value="{{ m.value }}" {% if periodo == m.value %}selected{% endif %}>{{ m.label }}</option>
-        {% endfor %}
-      </select>
-    </div>
+  <form class="card card-body mb-3">
+    <div class="row g-2">
+      <div class="col-12 col-md-3">
+        <label class="form-label">Cartão</label>
+        <select class="form-select" name="cartao">
+          <option value="">— todos —</option>
+          {% for c in cartoes %}
+            <option value="{{ c.id }}" {% if filtros.cartao|default:'' == c.id|stringformat:"s" %}selected{% endif %}>
+              {{ c.instituicao.nome }} • ****{{ c.cartao_final }} {% if c.bandeira %}• {{ c.bandeira }}{% endif %}
+              {% if c.membro %}• {{ c.membro.nome }}{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
 
-    <div class="col-12 col-sm-4">
-      <input type="text" class="form-control" name="q" placeholder="Buscar descrição..." value="{{ q }}">
-    </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label">Instituição</label>
+        <select class="form-select" name="instituicao">
+          <option value="">— todas —</option>
+          {% for inst in instituicoes %}
+            <option value="{{ inst.id }}" {% if filtros.instituicao|default:'' == inst.id|stringformat:"s" %}selected{% endif %}>
+              {{ inst.nome }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
 
-    <div class="col-12 col-sm-auto">
-      <select class="form-select" name="ord">
-        <option value="mais_novo"  {% if ord == 'mais_novo' %}selected{% endif %}>Mais novo primeiro</option>
-        <option value="mais_velho" {% if ord == 'mais_velho' %}selected{% endif %}>Mais velho primeiro</option>
-        <option value="maior_valor" {% if ord == 'maior_valor' %}selected{% endif %}>Maior valor</option>
-        <option value="menor_valor" {% if ord == 'menor_valor' %}selected{% endif %}>Menor valor</option>
-      </select>
-    </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label">Membro</label>
+        <select class="form-select" name="membro">
+          <option value="">— todos —</option>
+          {% for m in membros %}
+            <option value="{{ m.id }}" {% if filtros.membro|default:'' == m.id|stringformat:"s" %}selected{% endif %}>
+              {{ m.nome }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
 
-    <div class="col-12 col-sm-auto">
-      <button class="btn btn-primary">Filtrar</button>
-      <a class="btn btn-outline-secondary" href="{% url 'cartao_credito:lancamentos_lista' %}">Limpar filtros</a>
+      <div class="col-6 col-md-2">
+        <label class="form-label">Seção</label>
+        <input type="text" class="form-control" name="secao" value="{{ filtros.secao|default:'' }}" placeholder="Ex.: ENCARGOS">
+      </div>
+
+      <div class="col-6 col-md-2">
+        <label class="form-label">Mês (YYYY-MM)</label>
+        <input type="month" class="form-control" name="ym" value="{{ filtros.ym|default:'' }}">
+      </div>
+
+      <div class="col-6 col-md-2">
+        <label class="form-label">De (YYYY-MM)</label>
+        <input type="month" class="form-control" name="ym_from" value="{{ filtros.ym_from|default:'' }}">
+      </div>
+
+      <div class="col-6 col-md-2">
+        <label class="form-label">Até (YYYY-MM)</label>
+        <input type="month" class="form-control" name="ym_to" value="{{ filtros.ym_to|default:'' }}">
+      </div>
+
+      <div class="col-12 col-md-4">
+        <label class="form-label">Busca</label>
+        <input type="text" class="form-control" name="q" value="{{ filtros.q|default:'' }}" placeholder="Descrição, cidade ou país">
+      </div>
+
+      <div class="col-12 col-md-2 d-flex align-items-end">
+        <button class="btn btn-primary w-100" type="submit">Filtrar</button>
+      </div>
     </div>
   </form>
 
-  <!-- GRUPOS POR CARTÃO -->
-  {% if grupos and grupos.items %}
-    {% for key, g in grupos.items %}
-      <div class="mb-4">
-        <!-- Cabeçalho do cartão -->
-        <div class="d-flex align-items-center justify-content-between mb-2">
-          <div class="d-flex align-items-center gap-3">
-            {% if g.bandeira %}
-              <!-- Se tiver o ícone em static/cartoes/{{bandeira}}.svg -->
-              <img src="{% static 'cartoes/' %}{{ g.bandeira|lower }}.svg"
-                   alt="{{ g.bandeira }}" height="24"
-                   onerror="this.style.display='none';">
-            {% endif %}
-            <div>
-              <div class="fw-semibold">
-                {{ g.cartao.nome }} ({{ g.cartao.titular }})
-              </div>
-              <div class="text-secondary small">
-                {% if g.bandeira %}{{ g.bandeira }} • {% endif %}Final {{ g.last4 }}
-              </div>
-            </div>
-          </div>
-        </div>
+  <!-- Tabela -->
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle">
+      <thead class="table-light">
+        <tr>
+          <th style="width: 100px;">Data</th>
+          <th>Descrição</th>
+          <th style="width: 110px;">Seção</th>
+          <th style="width: 140px;" class="text-end">Valor (R$)</th>
+          <th style="width: 260px;">Cartão</th>
+          <th style="width: 110px;">Competência</th>
+          <th style="width: 140px;">Local</th>
+          <th style="width: 160px;">Membros</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in page_obj.object_list %}
+          <tr>
+            <td>{{ l.data|date:"d/m/Y" }}</td>
+            <td>
+              {{ l.descricao }}
+              {% if l.parcela_num and l.parcela_total %}
+                <span class="badge text-bg-secondary ms-1">{{ l.etiqueta_parcela }}</span>
+              {% endif %}
+            </td>
+            <td>{{ l.secao|default:"—" }}</td>
+            <td class="text-end">{{ l.valor|floatformat:2 }}</td>
+            <td>
+              {% with c=l.fatura.cartao %}
+                {% if c %}
+                  {{ c.instituicao.nome }} • ****{{ c.cartao_final }}{% if c.bandeira %} • {{ c.bandeira }}{% endif %}
+                  {% if c.membro %}<br><small class="text-muted">{{ c.membro.nome }}</small>{% endif %}
+                {% else %}—{% endif %}
+              {% endwith %}
+            </td>
+            <td>{{ l.fatura.competencia|date:"Y-m" }}</td>
+            <td>
+              {% if l.cidade %}{{ l.cidade }}{% endif %}
+              {% if l.pais %}{% if l.cidade %} • {% endif %}{{ l.pais }}{% endif %}
+              {% if not l.cidade and not l.pais %}—{% endif %}
+            </td>
+            <td>
+              {% if l.membros.all %}
+                {% for m in l.membros.all %}
+                  <span class="badge text-bg-light border">{{ m.nome }}</span>
+                {% empty %}
+                  —
+                {% endfor %}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="text-center text-muted py-4">Sem lançamentos para os filtros aplicados.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 
-        <!-- Tabela do grupo -->
-        <div class="table-responsive">
-          <table class="table table-sm align-middle">
-            <thead>
-              <tr>
-                <th>Data</th>
-                <th>Descrição</th>
-                <th class="text-end">Valor</th>
-                <th>Membros</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for l in g.lancamentos %}
-                <tr>
-                  <td>{{ l.data|date:"Y-m-d" }}</td>
-                  <td>{{ l.descricao }}</td>
-                  <td class="text-end {% if l.valor > 0 %}text-success{% elif l.valor < 0 %}text-danger{% endif %}">
-                    {{ l.valor|moeda_brasileira }}
-                  </td>
-                  <td class="text-wrap">
-                    <div class="d-flex flex-wrap gap-2">
+  <!-- Paginação -->
+  <nav aria-label="Paginação" class="mt-3">
+    <ul class="pagination pagination-sm">
+      {% if page_obj.has_previous %}
+        <li class="page-item">
+          <a class="page-link"
+            href="?page={{ page_obj.previous_page_number }}{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}">«</a>
+        </li>
+      {% else %}
+        <li class="page-item disabled"><span class="page-link">«</span></li>
+      {% endif %}
 
-                      <!-- Botão TODOS -->
-                      {% if l.membros.all|length == membros|length and membros|length > 0 %}
-                        <button class="btn btn-sm rounded-pill px-2 py-0 btn-primary toggle-membro-all"
-                                data-lancamento="{{ l.id }}" title="Remover todos">Todos</button>
-                      {% else %}
-                        <button class="btn btn-sm rounded-pill px-2 py-0 btn-outline-primary toggle-membro-all"
-                                data-lancamento="{{ l.id }}" title="Atribuir todos">Todos</button>
-                      {% endif %}
+      <li class="page-item disabled">
+        <span class="page-link">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+      </li>
 
-                      <!-- Tags por membro -->
-                      {% for m in membros %}
-                        {% if m in l.membros.all %}
-                          <button class="btn btn-sm rounded-pill px-2 py-0 btn-primary toggle-membro"
-                                  data-lancamento="{{ l.id }}"
-                                  data-membro="{{ m.id }}"
-                                  title="Remover {{ m.nome }}">
-                            {{ m.nome }}
-                          </button>
-                        {% else %}
-                          <button class="btn btn-sm rounded-pill px-2 py-0 btn-outline-primary toggle-membro"
-                                  data-lancamento="{{ l.id }}"
-                                  data-membro="{{ m.id }}"
-                                  title="Adicionar {{ m.nome }}">
-                            {{ m.nome }}
-                          </button>
-                        {% endif %}
-                      {% empty %}
-                        <span class="text-muted small">Sem membros cadastrados</span>
-                      {% endfor %}
-                    </div>
-                  </td>
-                </tr>
-              {% empty %}
-                <tr><td colspan="4" class="text-center text-muted">Sem lançamentos para este cartão.</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    {% endfor %}
-  {% else %}
-    <div class="text-center text-muted">Nenhum lançamento encontrado.</div>
-  {% endif %}
+      {% if page_obj.has_next %}
+        <li class="page-item">
+          <a class="page-link"
+            href="?page={{ page_obj.next_page_number }}{% if request.GET %}&{{ request.GET.urlencode }}{% endif %}">»</a>
+        </li>
+      {% else %}
+        <li class="page-item disabled"><span class="page-link">»</span></li>
+      {% endif %}
+    </ul>
+  </nav>
 
-  {# Sem paginação global: grupos facilitam a leitura por cartão #}
 </div>
-{% endblock %}
 
-{% block extra_js %}
-<script>
-(function() {
-  // CSRF helper
-  function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== "") {
-      const cookies = document.cookie.split(";");
-      for (let i = 0; i < cookies.length; i++) {
-        const cookie = cookies[i].trim();
-        if (cookie.substring(0, name.length + 1) === (name + "=")) {
-          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-          break;
-        }
-      }
-    }
-    return cookieValue;
-  }
-  const csrftoken = getCookie("csrftoken");
-
-  // Toggle individual
-  document.querySelectorAll(".toggle-membro").forEach(function(btn) {
-    btn.addEventListener("click", function() {
-      const lancamentoId = this.dataset.lancamento;
-      const membroId = this.dataset.membro;
-
-      fetch(`/cartao_credito/lancamento/${lancamentoId}/toggle-membro/${membroId}/`, {
-        method: "POST",
-        headers: { "X-CSRFToken": csrftoken },
-      })
-      .then(r => r.json())
-      .then(data => {
-        // alterna cor do botão
-        if (data.status === "adicionado") {
-          btn.classList.remove("btn-outline-primary");
-          btn.classList.add("btn-primary");
-        } else {
-          btn.classList.remove("btn-primary");
-          btn.classList.add("btn-outline-primary");
-        }
-        // ajusta o botão "Todos" da mesma linha
-        const cell = btn.closest("td");
-        const memberButtons = cell.querySelectorAll(".toggle-membro");
-        const allBtn = cell.querySelector(".toggle-membro-all");
-        const anyOff = Array.from(memberButtons).some(b => b.classList.contains("btn-outline-primary"));
-        if (allBtn) {
-          if (anyOff) {
-            allBtn.classList.remove("btn-primary");
-            allBtn.classList.add("btn-outline-primary");
-            allBtn.title = "Atribuir todos";
-          } else {
-            allBtn.classList.remove("btn-outline-primary");
-            allBtn.classList.add("btn-primary");
-            allBtn.title = "Remover todos";
-          }
-        }
-      });
-    });
-  });
-
-  // Toggle TODOS (atribui/remove todos os membros conforme estado atual)
-  document.querySelectorAll(".toggle-membro-all").forEach(function(btn) {
-    btn.addEventListener("click", function() {
-      const cell = btn.closest("td");
-      const lancamentoId = this.dataset.lancamento;
-      const memberButtons = cell.querySelectorAll(".toggle-membro");
-
-      // Se há algum desligado, ligamos todos; senão, removemos todos
-      const anyOff = Array.from(memberButtons).some(b => b.classList.contains("btn-outline-primary"));
-      const ops = [];
-      memberButtons.forEach(b => {
-        const membroId = b.dataset.membro;
-        const isOn = b.classList.contains("btn-primary");
-        const needOn = anyOff;
-        if ((needOn && !isOn) || (!needOn && isOn)) {
-          ops.push(
-            fetch(`/cartao_credito/lancamento/${lancamentoId}/toggle-membro/${membroId}/`, {
-              method: "POST",
-              headers: { "X-CSRFToken": csrftoken },
-            })
-            .then(r => r.json())
-            .then(data => {
-              if (data.status === "adicionado") {
-                b.classList.remove("btn-outline-primary");
-                b.classList.add("btn-primary");
-              } else {
-                b.classList.remove("btn-primary");
-                b.classList.add("btn-outline-primary");
-              }
-            })
-          );
-        }
-      });
-
-      Promise.all(ops).then(() => {
-        const stillAnyOff = Array.from(memberButtons).some(b => b.classList.contains("btn-outline-primary"));
-        if (stillAnyOff) {
-          btn.classList.remove("btn-primary");
-          btn.classList.add("btn-outline-primary");
-          btn.title = "Atribuir todos";
-        } else {
-          btn.classList.remove("btn-outline-primary");
-          btn.classList.add("btn-primary");
-          btn.title = "Remover todos";
-        }
-      });
-    });
-  });
-})();
-</script>
-{% endblock %}
+</body>
+</html>

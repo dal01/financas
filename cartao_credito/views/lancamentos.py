@@ -1,148 +1,151 @@
-# cartao_credito/views/lancamentos.py
-
-from collections import OrderedDict
+from __future__ import annotations
 from datetime import date
-from decimal import Decimal
+from typing import Optional
 
-from django.db.models import Sum
-from django.http import JsonResponse
-from django.shortcuts import render, get_object_or_404
-from django.views.decorators.http import require_POST
+from django.core.paginator import Paginator
+from django.db.models import Q, Sum, Value, DecimalField
+from django.db.models.functions import Coalesce, TruncMonth
+from django.shortcuts import render
 
-from core.models import Membro
-from cartao_credito.models import Lancamento
-from cartao_credito.utils_cartao import ultimos4, bandeira_guess
+from core.models import Membro, InstituicaoFinanceira
+from ..models import Cartao, FaturaCartao, Lancamento
 
-MESES_PT = [
-    "", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
-]
 
-def _add_meses(dt: date, n: int) -> date:
-    ano, mes = dt.year, dt.month
-    total = ano * 12 + (mes - 1) + n
-    novo_ano, novo_mes = divmod(total, 12)
-    return date(novo_ano, novo_mes + 1, 1)
+def _parse_ym(s: Optional[str]) -> Optional[date]:
+    """Converte 'YYYY-MM' em date(YYYY, MM, 1). Retorna None se inválido/vazio."""
+    if not s:
+        return None
+    try:
+        y, m = s.split("-")
+        y, m = int(y), int(m)
+        if 1 <= m <= 12:
+            return date(y, m, 1)
+    except Exception:
+        pass
+    return None
 
-def _meses_disponiveis():
+
+def _primeiro_dia_mes_atual() -> date:
+    hoje = date.today()
+    return hoje.replace(day=1)
+
+
+def lista_lancamentos(request):
     """
-    Lista meses que realmente têm lançamentos no banco (mais recentes primeiro).
-    Retorna uma lista de dicts: {"ano": 2025, "mes": 6, "value": "2025-06", "label": "Junho/2025"}
+    Lista global de lançamentos com filtros + cards de totais por:
+      - Membro (titular do cartão)
+      - Instituição
+      - Cartão (Instituição + final + bandeira)
+    Por padrão, inicia no mês atual.
     """
-    meses = Lancamento.objects.order_by().dates("data", "month", order="DESC")
-    out = []
-    for d in meses:
-        out.append({
-            "ano": d.year,
-            "mes": d.month,
-            "value": f"{d.year}-{d.month:02d}",
-            "label": f"{MESES_PT[d.month].capitalize()}/{d.year}",
-        })
-    return out
-
-@require_POST
-def lancamento_toggle_membro(request, lancamento_id, membro_id):
-    lancamento = get_object_or_404(Lancamento, pk=lancamento_id)
-    membro = get_object_or_404(Membro, pk=membro_id)
-
-    if membro in lancamento.membros.all():
-        lancamento.membros.remove(membro)
-        status = "removido"
-    else:
-        lancamento.membros.add(membro)
-        status = "adicionado"
-
-    return JsonResponse({"status": status})
-
-def listar_lancamentos_cartao(request):
-    print("TOTAL LANCAMENTOS:", Lancamento.objects.count())
-
     qs = (
         Lancamento.objects
-        .select_related("fatura", "fatura__cartao")
+        .select_related("fatura", "fatura__cartao", "fatura__cartao__instituicao", "fatura__cartao__membro")
         .prefetch_related("membros")
     )
 
     # ---- filtros ----
-    periodo = request.GET.get("periodo", "").strip()  # "YYYY-MM"
-    q = request.GET.get("q", "").strip()
-    ord_param = request.GET.get("ord", "mais_novo")
+    cartao_id = request.GET.get("cartao") or ""
+    instituicao_id = request.GET.get("instituicao") or ""
+    membro_id = request.GET.get("membro") or ""
+    secao = request.GET.get("secao") or ""
+    ym = _parse_ym(request.GET.get("ym"))
+    ym_from = _parse_ym(request.GET.get("ym_from"))
+    ym_to = _parse_ym(request.GET.get("ym_to"))
+    q = (request.GET.get("q") or "").strip()
 
-    # Dropdown baseado no que existe no banco
-    meses_disponiveis = _meses_disponiveis()
-    valores_validos = {m["value"] for m in meses_disponiveis}
+    # por padrão, fixa mês atual se nenhum range especificado
+    if not ym and not ym_from and not ym_to:
+        ym = _primeiro_dia_mes_atual()
 
-    ano_int = mes_int = None
-    if periodo and periodo in valores_validos:
-        ano_str, mes_str = periodo.split("-")
-        ano_int, mes_int = int(ano_str), int(mes_str)
-        inicio = date(ano_int, mes_int, 1)
-        fim = _add_meses(inicio, 1)  # exclusivo
-        qs = qs.filter(data__gte=inicio, data__lt=fim)
-    elif periodo:
-        # período inválido (não existe no banco) -> não filtra e zera indicador
-        periodo = ""
-        ano_int = mes_int = None
+    if cartao_id:
+        qs = qs.filter(fatura__cartao_id=cartao_id)
+    if instituicao_id:
+        qs = qs.filter(fatura__cartao__instituicao_id=instituicao_id)
+    if membro_id:
+        # titular do cartão OU membro(s) atribuídos no lançamento
+        qs = qs.filter(
+            Q(fatura__cartao__membro_id=membro_id) |
+            Q(membros__id=membro_id)
+        ).distinct()
+    if secao:
+        qs = qs.filter(secao=secao)
 
-    # Busca
-    if q:
-        qs = qs.filter(descricao__icontains=q)
-
-    # Ordenação (aplicada dentro de cada cartão)
-    if ord_param == "mais_velho":
-        ordering = ("data", "id")
-    elif ord_param == "maior_valor":
-        ordering = ("-valor", "data", "id")
-    elif ord_param == "menor_valor":
-        ordering = ("valor", "data", "id")
+    if ym:
+        qs = qs.filter(fatura__competencia=ym)
     else:
-        ordering = ("-data", "-id")
-    qs = qs.order_by(*ordering)
+        if ym_from:
+            qs = qs.filter(fatura__competencia__gte=ym_from)
+        if ym_to:
+            qs = qs.filter(fatura__competencia__lte=ym_to)
 
-    # ---- totais (filtro atual) ----
-    entradas = qs.filter(valor__gt=0).aggregate(s=Sum("valor"))["s"] or Decimal("0")
-    saidas   = qs.filter(valor__lt=0).aggregate(s=Sum("valor"))["s"] or Decimal("0")
-    total    = entradas + saidas
+    if q:
+        qs = qs.filter(
+            Q(descricao__icontains=q) |
+            Q(cidade__icontains=q) |
+            Q(pais__icontains=q)
+        )
 
-    # ---- agrupar por cartão ----
-    # ordena por cartão para garantir blocos estáveis
-    qs = qs.order_by("fatura__cartao__id", *ordering)
+    qs = qs.order_by("-data", "-id")
 
-    grupos = OrderedDict()
-    for l in qs:
-        cartao = l.fatura.cartao
-        key = cartao.id
-        if key not in grupos:
-            grupos[key] = {
-                "cartao": cartao,
-                "last4": ultimos4(cartao.nome),            # usa nome como proxy de número
-                "bandeira": bandeira_guess(cartao.nome),   # heurística
-                "lancamentos": [],
-            }
-        grupos[key]["lancamentos"].append(l)
+    # paginação
+    paginator = Paginator(qs, 100)
+    page = paginator.get_page(request.GET.get("page"))
 
-    membros = Membro.objects.all().order_by("nome")
+    # agregado geral
+    soma_valor = qs.aggregate(
+        s=Coalesce(Sum("valor"), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2))
+    )["s"]
 
-    contexto = {
-        # filtros
-        "periodo": periodo,
-        "q": q,
-        "ord": ord_param,
-        "ano": ano_int,
-        "mes": mes_int,
-        "meses_disponiveis": meses_disponiveis,
+    # ---- agregações para os cards ----
+    # 1) Por Membro (titular do cartão)
+    por_membro = (
+        qs.values("fatura__cartao__membro__id", "fatura__cartao__membro__nome")
+          .annotate(soma=Coalesce(Sum("valor"), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2)))
+          .order_by("-soma", "fatura__cartao__membro__nome")
+    )
 
-        # totais
-        "entradas": entradas,
-        "saidas": saidas,
-        "total": total,
+    # 2) Por Instituição
+    por_instituicao = (
+        qs.values("fatura__cartao__instituicao__id", "fatura__cartao__instituicao__nome")
+          .annotate(soma=Coalesce(Sum("valor"), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2)))
+          .order_by("-soma", "fatura__cartao__instituicao__nome")
+    )
 
-        # dados agrupados
-        "grupos": grupos,
-        "membros": membros,
+    # 3) Por Cartão
+    por_cartao = (
+        qs.values(
+            "fatura__cartao__id",
+            "fatura__cartao__instituicao__nome",
+            "fatura__cartao__cartao_final",
+            "fatura__cartao__bandeira",
+        )
+          .annotate(soma=Coalesce(Sum("valor"), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2)))
+          .order_by("-soma", "fatura__cartao__instituicao__nome", "fatura__cartao__cartao_final")
+    )
 
-        # compat com template antiga (não usados aqui)
-        "page_obj": None,
-        "lancamentos": [],
+    ctx = {
+        "page_obj": page,
+        "soma_valor": soma_valor,
+        "cartoes": Cartao.objects.select_related("instituicao", "membro").order_by("instituicao__nome", "cartao_final"),
+        "instituicoes": InstituicaoFinanceira.objects.order_by("nome"),
+        "membros": Membro.objects.order_by("nome"),
+        "filtros": {
+            "cartao": cartao_id,
+            "instituicao": instituicao_id,
+            "membro": membro_id,
+            "secao": secao,
+            # refletir a escolha (ou o default do mês atual) no form:
+            "ym": (request.GET.get("ym") or (ym.strftime("%Y-%m") if ym else "")),
+            "ym_from": request.GET.get("ym_from") or "",
+            "ym_to": request.GET.get("ym_to") or "",
+            "q": q,
+        },
+        # dados para os cards
+        "aggs": {
+            "por_membro": list(por_membro),
+            "por_instituicao": list(por_instituicao),
+            "por_cartao": list(por_cartao),
+        },
     }
-    return render(request, "cartao_credito/lancamentos_lista.html", contexto)
+    return render(request, "cartao_credito/lancamentos_lista.html", ctx)

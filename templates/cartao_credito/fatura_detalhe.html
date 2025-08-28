@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h1 class="h4 mb-0">
+      Fatura ****{{ fatura.cartao_final }} ({{ fatura.bandeira }})
+    </h1>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'cartao_credito:faturas_list' %}">Voltar</a>
+  </div>
+
+  <!-- Info da fatura -->
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-md-3">
+      <div class="card shadow-sm"><div class="card-body">
+        <div class="text-secondary small">Instituição</div>
+        <div class="h6 mb-0">{{ fatura.instituicao }}</div>
+      </div></div>
+    </div>
+    <div class="col-12 col-md-3">
+      <div class="card shadow-sm"><div class="card-body">
+        <div class="text-secondary small">Membro</div>
+        <div class="h6 mb-0">{{ fatura.membro }}</div>
+      </div></div>
+    </div>
+    <div class="col-12 col-md-2">
+      <div class="card shadow-sm"><div class="card-body">
+        <div class="text-secondary small">Competência</div>
+        <div class="h6 mb-0">{{ fatura.competencia_br }}</div>
+      </div></div>
+    </div>
+    <div class="col-12 col-md-2">
+      <div class="card shadow-sm"><div class="card-body">
+        <div class="text-secondary small">Fechamento</div>
+        <div class="h6 mb-0">{{ fatura.fechamento_br }}</div>
+      </div></div>
+    </div>
+    <div class="col-12 col-md-2">
+      <div class="card shadow-sm"><div class="card-body">
+        <div class="text-secondary small">Vencimento</div>
+        <div class="h6 mb-0">{{ fatura.vencimento_br }}</div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- Total -->
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-md-3">
+      <div class="card shadow-sm"><div class="card-body">
+        <div class="text-secondary small">Total</div>
+        <div class="h5 mb-0">R$ {{ fatura.total_br }}</div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- Lançamentos -->
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead class="table-light">
+        <tr>
+          <th style="width: 15%;">Data</th>
+          <th>Descrição</th>
+          <th class="text-end" style="width: 20%;">Valor</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in linhas %}
+          <tr>
+            <td>{{ l.data_br }}</td>
+            <td>{{ l.descricao }}</td>
+            <td class="text-end">R$ {{ l.valor_br }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="text-center text-secondary py-4">Sem lançamentos.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}

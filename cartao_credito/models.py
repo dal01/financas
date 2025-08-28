@@ -1,28 +1,71 @@
 from __future__ import annotations
 
 from uuid import uuid4
-from decimal import Decimal
 from django.db import models
 from django.utils import timezone
+from core.models import Membro, InstituicaoFinanceira
 
-from core.models import Membro
+class Cartao(models.Model):
+    """Cartão físico/lógico. Um membro titular, vários ciclos de fatura."""
+
+    instituicao = models.ForeignKey(
+        InstituicaoFinanceira,
+        on_delete=models.CASCADE,
+        related_name="cartoes",
+    )
+    bandeira = models.CharField(max_length=60, blank=True, null=True)
+    cartao_final = models.CharField(max_length=8)  # ex.: "6462"
+
+    # titular real do cartão no sistema
+    membro = models.ForeignKey(
+        Membro,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cartoes",
+    )
+
+    ativo = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            # evita duplicar o mesmo cartão na mesma instituição/bandeira
+            models.UniqueConstraint(
+                fields=["instituicao", "bandeira", "cartao_final"],
+                name="uniq_cartao_instituicao_bandeira_final",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["cartao_final"]),
+            models.Index(fields=["membro"]),
+        ]
+
+    def __str__(self) -> str:
+        inst = self.instituicao.nome if self.instituicao_id else "—"
+        bd = self.bandeira or "—"
+        mb = f"{self.membro}" if self.membro_id else "—"
+        return f"{inst} • {bd} • ****{self.cartao_final} • {mb}"
+
 
 
 class FaturaCartao(models.Model):
     """Metadados/cabeçalho de uma fatura mensal por cartão."""
-    emissor = models.CharField(max_length=60, blank=True, null=True)
-    bandeira = models.CharField(max_length=60, blank=True, null=True)
-    titular = models.CharField(max_length=120, blank=True, null=True)
+    cartao = models.ForeignKey(
+        Cartao,
+        on_delete=models.CASCADE,
+        related_name="faturas",
+        null=False,
+        blank=False,
+    )
 
-    cartao_final = models.CharField(max_length=8)               # ex.: "6462"
     fechado_em = models.DateField()
     vencimento_em = models.DateField()
-    competencia = models.DateField()                            # sempre 1º dia do mês
+    competencia = models.DateField()  # sempre 1º dia do mês
 
     total = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
 
     arquivo_hash = models.CharField(max_length=40, blank=True, null=True)   # sha1 do PDF
-    fonte_arquivo = models.CharField(max_length=255, blank=True, null=True) # caminho/nome do PDF (opcional)
+    fonte_arquivo = models.CharField(max_length=255, blank=True, null=True) # caminho nome do PDF (opcional)
     import_batch = models.UUIDField(default=uuid4, editable=False)
 
     criado_em = models.DateTimeField(default=timezone.now, editable=False)
@@ -30,19 +73,19 @@ class FaturaCartao(models.Model):
 
     class Meta:
         constraints = [
-            # uma fatura por mês por final de cartão
+            # uma fatura por mês por cartão
             models.UniqueConstraint(
-                fields=["cartao_final", "competencia"],
+                fields=["cartao", "competencia"],
                 name="uniq_fatura_por_cartao_competencia",
             ),
         ]
         indexes = [
-            models.Index(fields=["competencia", "cartao_final"]),
+            models.Index(fields=["competencia", "cartao"]),
             models.Index(fields=["fechado_em"]),
         ]
 
     def __str__(self) -> str:
-        return f"Fatura {self.competencia:%Y-%m} • Final {self.cartao_final} ({self.emissor or '—'})"
+        return f"Fatura {self.competencia:%Y-%m} • {self.cartao}"
 
 
 class Lancamento(models.Model):
@@ -84,7 +127,7 @@ class Lancamento(models.Model):
     # Compat com OFX (opcional)
     fitid = models.CharField(max_length=100, blank=True, null=True)
 
-    # Atribuição de membros
+    # Atribuição de membros (opcional por linha; mantém flexibilidade)
     membros = models.ManyToManyField(Membro, blank=True, related_name="lancamentos_cartao")
 
     class Meta:

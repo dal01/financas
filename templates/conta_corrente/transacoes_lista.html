@@ -252,28 +252,28 @@
     </nav>
   {% endif %}
 
-  {# ============ AGRUPAMENTO OCULTAS: Instituição → Membro → Conta ============ #}
+  {# ============ AGRUPAMENTO OCULTAS (igual às visíveis): Membro → Instituição → Conta ============ #}
   {% if itens_ocultas %}
     <hr class="my-4">
     <h5 class="mb-3">Ignoradas pelas regras</h5>
 
-    {% regroup itens_ocultas by inst_nome_norm as grupos_inst_o %}
-    {% for gi in grupos_inst_o %}
+    {% regroup itens_ocultas by membro_nome as grupos_membro_o %}
+    {% for gm in grupos_membro_o %}
       <div class="d-flex align-items-center mt-2 mb-2">
-        <h5 class="mb-0">{{ gi.list.0.inst_titulo }}</h5>
+        <h5 class="mb-0">{{ gm.grouper }}</h5>
         <hr class="flex-grow-1 ms-3">
       </div>
 
-      {% regroup gi.list by membro_nome as grupos_membro_o %}
-      {% for gm in grupos_membro_o %}
-        <div class="d-flex align-items-center mt-2 mb-1">
-          <div class="badge text-bg-warning">{{ gm.grouper }}</div>
-          <span class="text-muted small ms-2">({{ gm.list|length }} itens no membro)</span>
+      {% regroup gm.list by inst_nome_norm as grupos_inst_o %}
+      {% for gi in grupos_inst_o %}
+        <div class="d-flex align-items-center mt-2 mb-2">
+          <h6 class="mb-0">{{ gi.list.0.inst_titulo }}</h6>
+          <hr class="flex-grow-1 ms-3">
         </div>
 
-        {% regroup gm.list by conta_numero as grupos_conta_o %}
+        {% regroup gi.list by conta_numero as grupos_conta_o %}
         {% for gc in grupos_conta_o %}
-          <div class="d-flex align-items-center mt-1 mb-1">
+          <div class="d-flex align-items-center mt-2 mb-1">
             <div class="badge text-bg-info">Conta {{ gc.grouper }}</div>
             <span class="text-muted small ms-2">({{ gc.list|length }} itens)</span>
           </div>
@@ -316,7 +316,7 @@
                         {% endfor %}
                       </div>
                     </td>
-                    <td>
+                    <td class="text-nowrap">
                       {% if t.oculta_manual %}
                         <form method="post" action="{% url 'conta_corrente:transacao_toggle_oculta' t.id %}">
                           {% csrf_token %}
@@ -331,6 +331,8 @@
                     </td>
                   </tr>
                   {% endwith %}
+                {% empty %}
+                  <tr><td colspan="5" class="text-center text-muted">Nenhum lançamento nesta conta.</td></tr>
                 {% endfor %}
               </tbody>
             </table>
@@ -339,5 +341,6 @@
       {% endfor %}
     {% endfor %}
   {% endif %}
+
 </div>
 {% endblock %}

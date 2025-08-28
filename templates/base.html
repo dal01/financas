@@ -50,14 +50,12 @@
 
           <!-- Cartão de Crédito -->
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="ccredDropdown" role="button" data-bs-toggle="dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="ccredDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Cartão de Crédito
             </a>
             <ul class="dropdown-menu" aria-labelledby="ccredDropdown">
-              <li><a class="dropdown-item" href="{% url 'cartao_credito:lancamentos_lista' %}">Lançamentos</a></li>
-              <li><a class="dropdown-item" href="{% url 'cartao_credito:resumo_mensal' %}">Resumo Mensal</a></li>
-              <li><hr class="dropdown-divider"></li>
-              <li><a class="dropdown-item" href="{% url 'cartao_credito:faturas_mes' %}">Faturas do Mês</a></li>
+              <li><a class="dropdown-item" href="{% url 'cartao_credito:faturas_list' %}">Faturas</a></li>
+              <li><a class="dropdown-item" href="{% url 'cartao_credito:resumo_mensal_cartao' %}">Resumo Mensal</a></li>
             </ul>
           </li>
 
@@ -83,7 +81,7 @@
     {% if messages %}
       <div class="mb-3">
         {% for message in messages %}
-          {# Ajuste leve: se vier "error", o Bootstrap usa "danger" #}
+          {# Ajuste: se vier "error", o Bootstrap usa "danger" #}
           {% if message.tags == "error" %}
             {% with "danger" as level %}
               <div class="alert alert-{{ level }} mb-2" role="alert">

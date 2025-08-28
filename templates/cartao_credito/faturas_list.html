@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h1 class="h4 mb-0">Faturas de Cartão</h1>
+
+    <form class="d-flex gap-2" method="get">
+      <select class="form-select" name="competencia" style="min-width: 160px;">
+        {% for ym in meses_disponiveis %}
+          <option value="{{ ym }}" {% if ym == competencia %}selected{% endif %}>
+            {{ ym }}
+          </option>
+        {% endfor %}
+      </select>
+
+      <input type="search" class="form-control" name="q" placeholder="Buscar membro/bandeira/final…" value="{{ q }}">
+      <button class="btn btn-primary" type="submit">Filtrar</button>
+    </form>
+  </div>
+
+  <!-- Cards de resumo -->
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-md-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <div class="text-secondary small">Faturas no mês</div>
+          <div class="h4 mb-0">{{ card_qtd_faturas }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <div class="text-secondary small">Total do mês (calculado)</div>
+          <div class="h4 mb-0">R$ {{ card_soma }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <div class="text-secondary small">Total nos PDFs</div>
+          <div class="h4 mb-0">R$ {{ card_pdf }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- UMA TABELA POR MEMBRO -->
+  {% for g in grupos_membro %}
+    <div class="mb-2 mt-4">
+      <div class="h5">{{ g.membro }}</div>
+    </div>
+
+    <div class="table-responsive mb-4">
+      <table class="table align-middle">
+        <thead class="table-light">
+          <tr>
+            <th style="width: 16%;">Bandeira</th>
+            <th style="width: 12%;">Final</th>
+            <th style="width: 14%;">Competência</th>
+            <th style="width: 14%;">Fechamento</th>
+            <th style="width: 14%;">Vencimento</th>
+            <th class="text-end" style="width: 16%;">Total</th>
+            <th style="width: 14%;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in g.linhas %}
+            <tr>
+              <td>{{ f.bandeira }}</td>
+              <td>**** {{ f.final }}</td>
+              <td>{{ f.competencia_br }}</td>
+              <td>{{ f.fechamento_br }}</td>
+              <td>{{ f.vencimento_br }}</td>
+              <td class="text-end">R$ {{ f.total_br }}</td>
+              <td class="text-end">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'cartao_credito:fatura_detalhe' f.id %}">
+                  Detalhar
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="7" class="text-center text-secondary py-4">Sem faturas para este membro.</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="table-light">
+            <th colspan="5" class="text-end">Total</th>
+            <th class="text-end">R$ {{ g.total_br }}</th>
+            <th></th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  {% empty %}
+    <div class="text-secondary">Sem faturas para os filtros.</div>
+  {% endfor %}
+
+</div>
+{% endblock %}

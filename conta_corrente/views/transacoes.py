@@ -80,7 +80,7 @@ def listar_transacoes(request):
     if q:
         qs = qs.filter(descricao__icontains=q)
 
-    # -------- Ordenação --------
+    # -------- Ordenação (queryset base) --------
     if ord_param == "mais_velho":
         ordering = ("conta__instituicao__nome", "data", "id")
     elif ord_param == "maior_valor":
@@ -143,7 +143,7 @@ def listar_transacoes(request):
             "t": t,
         })
 
-    # Ordenação para regroup
+    # Ordenação para regroup (visíveis)
     if ord_param == "mais_velho":
         itens_visiveis.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], x["t"].data, x["t"].id))
     elif ord_param == "maior_valor":
@@ -153,19 +153,30 @@ def listar_transacoes(request):
     else:  # mais_novo
         itens_visiveis.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], -x["t"].data.toordinal(), -x["t"].id))
 
-    # -------- EXPANSÃO PARA EXIBIÇÃO (Ocultas): igual às visíveis (sem m_totais necessário) --------
+    # -------- EXPANSÃO PARA EXIBIÇÃO (Ocultas): Membro → Instituição → Conta --------
     itens_ocultas = []
     for t in transacoes_ocultas:
         inst_nome = t.conta.instituicao.nome if t.conta and t.conta.instituicao else ""
         inst_norm = _norm_nome_inst(inst_nome)
         m = t.conta.membro if t.conta else None
+        membro_nome = m.nome if m else "(Sem membro)"
         itens_ocultas.append({
-            "membro_nome": m.nome if m else "(Sem membro)",
+            "membro_nome": membro_nome,
             "inst_nome_norm": inst_norm,
             "inst_titulo": inst_nome,
             "conta_numero": t.conta.numero if t.conta else "",
             "t": t,
         })
+
+    # Ordenação para regroup (ocultas) — segue o mesmo critério do bloco visível
+    if ord_param == "mais_velho":
+        itens_ocultas.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], x["t"].data, x["t"].id))
+    elif ord_param == "maior_valor":
+        itens_ocultas.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], -x["t"].valor, x["t"].data))
+    elif ord_param == "menor_valor":
+        itens_ocultas.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], x["t"].valor, x["t"].data))
+    else:  # mais_novo
+        itens_ocultas.sort(key=lambda x: (x["membro_nome"].lower(), x["inst_nome_norm"], x["conta_numero"], -x["t"].data.toordinal(), -x["t"].id))
 
     # -------- Paginação (somente nos visíveis) --------
     paginator = Paginator(itens_visiveis, 50)
