@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import re
 from uuid import uuid4
+from decimal import Decimal, ROUND_HALF_UP
+
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+
 from core.models import Membro, InstituicaoFinanceira
+
 
 class Cartao(models.Model):
     """Cartão físico/lógico. Um membro titular, vários ciclos de fatura."""
@@ -45,7 +51,6 @@ class Cartao(models.Model):
         bd = self.bandeira or "—"
         mb = f"{self.membro}" if self.membro_id else "—"
         return f"{inst} • {bd} • ****{self.cartao_final} • {mb}"
-
 
 
 class FaturaCartao(models.Model):
@@ -143,3 +148,120 @@ class Lancamento(models.Model):
 
     def __str__(self) -> str:
         return f"{self.data} - {self.descricao} (R$ {self.valor})"
+
+
+class RegraMembroCartao(models.Model):
+    TIPO_PADRAO_CHOICES = [
+        ('exato', 'Texto exato'),
+        ('contem', 'Contém o texto'),
+        ('inicia_com', 'Inicia com'),
+        ('termina_com', 'Termina com'),
+        ('regex', 'Expressão regular'),
+    ]
+
+    TIPO_VALOR_CHOICES = [
+        ('nenhum', 'Sem condição de valor'),
+        ('igual', 'Igual a'),
+        ('maior', 'Maior que'),
+        ('menor', 'Menor que'),
+    ]
+
+    # Identificação
+    nome = models.CharField(max_length=120)
+
+    # Padrão (aplicado em Lancamento.descricao)
+    tipo_padrao = models.CharField(max_length=20, choices=TIPO_PADRAO_CHOICES, default='contem')
+    padrao = models.CharField(max_length=200)
+
+    # Condição por valor absoluto (em BRL, campo Lancamento.valor)
+    tipo_valor = models.CharField(max_length=10, choices=TIPO_VALOR_CHOICES, default='nenhum')
+    valor = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+
+    # Alvo (para quem atribuir)
+    membros = models.ManyToManyField(Membro, blank=True, related_name="regras_membro_cartao")
+
+    # Controle
+    ativo = models.BooleanField(default=True)
+    prioridade = models.PositiveIntegerField(default=100, help_text="Quanto menor, mais cedo esta regra é avaliada.")
+
+    # Auditoria
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Regra de Membro (Cartão)"
+        verbose_name_plural = "Regras de Membro (Cartão)"
+        ordering = ("prioridade", "nome")
+        indexes = [
+            models.Index(fields=["ativo", "prioridade"]),
+        ]
+
+    def __str__(self):
+        return f"{self.nome} ({self.get_tipo_padrao_display()})"
+
+    # --- lógica principal da regra ---
+    def aplica_para(self, descricao: str, valor: Decimal) -> bool:
+        if not self.ativo:
+            return False
+
+        # ---- match por descrição ----
+        desc = (descricao or "")
+        alvo_txt = (self.padrao or "")
+        tipo = self.tipo_padrao
+
+        if tipo == "exato":
+            desc_ok = desc.lower() == alvo_txt.lower()
+        elif tipo == "contem":
+            desc_ok = alvo_txt.lower() in desc.lower()
+        elif tipo == "inicia_com":
+            desc_ok = desc.lower().startswith(alvo_txt.lower())
+        elif tipo == "termina_com":
+            desc_ok = desc.lower().endswith(alvo_txt.lower())
+        elif tipo == "regex":
+            try:
+                desc_ok = re.search(self.padrao, desc, re.I) is not None
+            except re.error:
+                desc_ok = False
+        else:
+            desc_ok = False
+
+        if not desc_ok:
+            return False
+
+        # ---- match por valor (ignorando sinal) ----
+        if self.tipo_valor == "nenhum":
+            return True
+        if self.valor is None:
+            return False
+
+        # Comparação robusta (duas casas, tolerância 1 centavo)
+        v = abs(Decimal(valor or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        alvo = abs(Decimal(self.valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        tol = Decimal("0.01")
+
+        if self.tipo_valor == "igual":
+            return abs(v - alvo) <= tol
+        elif self.tipo_valor == "maior":
+            return v > (alvo - tol)
+        elif self.tipo_valor == "menor":
+            return v < (alvo + tol)
+        return False
+
+    # --- coerção/validação para UX melhor e consistência ---
+    def clean(self):
+        # Se há valor mas tipo_valor ficou "nenhum" -> ajusta para "igual"
+        if self.valor is not None and self.tipo_valor == "nenhum":
+            self.tipo_valor = "igual"
+
+        # Se tipo_valor exige valor e ele não foi informado -> erro
+        if self.tipo_valor != "nenhum" and self.valor is None:
+            raise ValidationError({"valor": "Informe um valor quando há condição de valor."})
+
+        # Se tipo_valor é 'nenhum', zera valor para manter consistência
+        if self.tipo_valor == "nenhum":
+            self.valor = None
+
+    def save(self, *args, **kwargs):
+        # Garante coerção também se salvar sem passar por forms (ex.: script)
+        self.full_clean()
+        return super().save(*args, **kwargs)

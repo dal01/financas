@@ -1,4 +1,3 @@
-# cartao_credito/views/faturas.py
 from __future__ import annotations
 from datetime import date
 from decimal import Decimal
@@ -6,8 +5,13 @@ from decimal import Decimal
 from django.db.models import Q, Sum, Value, DecimalField
 from django.db.models.functions import Coalesce
 from django.shortcuts import render, get_object_or_404
+from django.http import JsonResponse, HttpRequest
+from django.views.decorators.http import require_POST
 
 from cartao_credito.models import FaturaCartao, Lancamento, Cartao
+from core.models import Membro
+
+from cartao_credito.services.regras import aplicar_regras_em_lancamento, aplicar_regras_em_queryset
 
 
 # ---------------- helpers ----------------
@@ -39,17 +43,10 @@ def data_br(d: date | None) -> str:
 
 
 # ---------------- views ----------------
-def faturas_list(request):
-    """
-    Lista faturas por competência, com:
-      - cards de totais no topo
-      - AGRUPAMENTO POR MEMBRO: uma tabela por membro, com total na última linha
-    Nada de cálculos na template.
-    """
+def faturas_list(request: HttpRequest):
     competencia = parse_competencia(request.GET.get("competencia"))
     q = (request.GET.get("q") or "").strip()
 
-    # Base SEM anotações (evita duplicação em agregações globais)
     base = (
         FaturaCartao.objects
         .filter(competencia=competencia)
@@ -64,15 +61,12 @@ def faturas_list(request):
             Q(cartao__cartao_final__icontains=q)
         )
 
-    # ===== Cards (sem duplicar) =====
-    # (A) soma das faturas com total preenchido (PDF)
     soma_totais_pdf = (
         base.filter(total__isnull=False)
         .aggregate(s=Coalesce(Sum("total"), Value(Decimal("0.00"), output_field=DecimalField(max_digits=12, decimal_places=2))))
         ["s"]
     ) or Decimal("0")
 
-    # (B) soma dos lançamentos das faturas cujo total é nulo
     ids_sem_total = base.filter(total__isnull=True).values_list("id", flat=True)
     soma_lancs_sem_total = (
         Lancamento.objects
@@ -84,15 +78,11 @@ def faturas_list(request):
     soma_total_calculado = soma_totais_pdf + soma_lancs_sem_total
     total_faturas = base.count()
 
-    # Meses disponíveis (para o <select>)
     meses_disponiveis = sorted(
         set(FaturaCartao.objects.values_list("competencia", flat=True)),
         reverse=True
     )
 
-    # ===== AGRUPAMENTO POR MEMBRO =====
-    # Para cada fatura, definimos "total_display": usa total do PDF se houver; senão soma calculada
-    # Para evitar JOIN no loop, anotamos a soma de lançamentos por fatura
     base_com_calc = base.annotate(
         total_calc=Coalesce(
             Sum("lancamentos__valor"),
@@ -100,15 +90,12 @@ def faturas_list(request):
         )
     )
 
-    # Mapa: membro -> {"linhas": [...], "total": Decimal}
     grupos: dict[str, dict[str, object]] = {}
-
     for f in base_com_calc:
         cartao: Cartao = f.cartao
         membro_nome = cartao.membro.nome if cartao and cartao.membro_id else "—"
         bandeira = cartao.bandeira or "—"
         final = (cartao.cartao_final or "")[-8:]
-
         total_display = f.total if f.total is not None else f.total_calc
 
         g = grupos.setdefault(membro_nome, {"linhas": [], "total": Decimal("0")})
@@ -122,40 +109,31 @@ def faturas_list(request):
             "_total_dec": total_display or Decimal("0"),
             "id": f.pk,
         })
-        g["total"] = (g["total"] or Decimal("0")) + (total_display or Decimal("0"))
+        g["total"] += (total_display or Decimal("0"))
 
-    # Ordena membros pelo nome; e, dentro de cada membro, mantém a ordem já aplicada no queryset
     grupos_membro = []
     for membro_nome in sorted(grupos.keys(), key=lambda s: s.lower()):
         dados = grupos[membro_nome]
         total_membro = dados["total"] or Decimal("0")
-        # linhas já vêm ordenadas pelo queryset
-        linhas = dados["linhas"]
         grupos_membro.append({
             "membro": membro_nome,
-            "linhas": linhas,
+            "linhas": dados["linhas"],
             "total_br": moeda_br(total_membro),
         })
 
     context = {
         "competencia": competencia.strftime("%Y-%m"),
-        # cards
         "card_qtd_faturas": total_faturas,
-        "card_soma": moeda_br(soma_total_calculado),  # “Total do mês (calculado)”
-        "card_pdf": moeda_br(soma_totais_pdf),        # “Total nos PDFs”
-        # grupos para renderizar tabelas por membro
+        "card_soma": moeda_br(soma_total_calculado),
+        "card_pdf": moeda_br(soma_totais_pdf),
         "grupos_membro": grupos_membro,
-        # selects / busca
         "meses_disponiveis": [d.strftime("%Y-%m") for d in meses_disponiveis],
         "q": q,
     }
     return render(request, "cartao_credito/faturas_list.html", context)
 
 
-def fatura_detalhe(request, fatura_id: str):
-    """
-    Mostra os lançamentos de uma fatura específica, com totais prontos.
-    """
+def fatura_detalhe(request: HttpRequest, fatura_id: str):
     fatura = get_object_or_404(
         FaturaCartao.objects.select_related("cartao", "cartao__instituicao", "cartao__membro"),
         pk=fatura_id
@@ -164,6 +142,7 @@ def fatura_detalhe(request, fatura_id: str):
     lancs = (
         Lancamento.objects
         .filter(fatura=fatura)
+        .prefetch_related("membros")
         .order_by("data", "id")
     )
 
@@ -172,20 +151,25 @@ def fatura_detalhe(request, fatura_id: str):
         Value(Decimal("0.00"), output_field=DecimalField(max_digits=12, decimal_places=2))
     ))["soma"] or Decimal("0")
 
-    # se a fatura já tiver total no cabeçalho, priorize-o para exibir
     total_display = fatura.total if fatura.total is not None else soma
 
-    linhas = [{
-        "data_br": data_br(l.data),
-        "descricao": l.descricao,
-        "valor_br": moeda_br(l.valor),
-    } for l in lancs]
+    linhas = []
+    for l in lancs:
+        linhas.append({
+            "id": l.id,
+            "data_br": data_br(l.data),
+            "descricao": l.descricao,
+            "valor_br": moeda_br(l.valor),
+            "membros_ids": [m.id for m in l.membros.all()],
+        })
 
     cartao = fatura.cartao
     bandeira = cartao.bandeira or "—"
     final = cartao.cartao_final
     membro_nome = cartao.membro.nome if cartao and cartao.membro_id else "—"
     instituicao = cartao.instituicao.nome if cartao and cartao.instituicao_id else "—"
+
+    membros_options = list(Membro.objects.order_by("nome").values("id", "nome"))
 
     context = {
         "fatura": {
@@ -201,5 +185,63 @@ def fatura_detalhe(request, fatura_id: str):
             "qtde": len(linhas),
         },
         "linhas": linhas,
+        "membros": membros_options,
     }
     return render(request, "cartao_credito/fatura_detalhe.html", context)
+
+
+@require_POST
+def lancamento_toggle_membro(request: HttpRequest, lancamento_id: int):
+    """Ativa/desativa 1 membro no lançamento (M2M)."""
+    l = get_object_or_404(Lancamento, pk=lancamento_id)
+    membro_id = request.POST.get("membro_id")
+    m = get_object_or_404(Membro, pk=membro_id)
+
+    if l.membros.filter(id=m.id).exists():
+        l.membros.remove(m)
+        ativo = False
+    else:
+        l.membros.add(m)
+        ativo = True
+
+    return JsonResponse({
+        "ok": True,
+        "lancamento_id": l.id,
+        "membro_id": m.id,
+        "ativo": ativo,
+    })
+
+
+@require_POST
+def lancamento_toggle_todos(request: HttpRequest, lancamento_id: int):
+    """Ativa/desativa todos os membros de uma vez."""
+    l = get_object_or_404(Lancamento, pk=lancamento_id)
+    membros = list(Membro.objects.all())
+
+    # já tem todos? então limpa
+    if l.membros.count() == len(membros):
+        l.membros.clear()
+        ativo = False
+    else:
+        l.membros.set(membros)
+        ativo = True
+
+    return JsonResponse({
+        "ok": True,
+        "lancamento_id": l.id,
+        "todos": ativo,
+    })
+
+
+@require_POST
+def regra_aplicar_lancamento(request: HttpRequest, lancamento_id: int):
+    l = get_object_or_404(Lancamento, pk=lancamento_id)
+    ids = aplicar_regras_em_lancamento(l)
+    return JsonResponse({"ok": True, "lancamento_id": l.id, "membros_ids": ids})
+
+@require_POST
+def regra_aplicar_fatura(request: HttpRequest, fatura_id: int):
+    fatura = get_object_or_404(FaturaCartao, pk=fatura_id)
+    qs = Lancamento.objects.filter(fatura=fatura).order_by("data", "id").prefetch_related("membros")
+    res = aplicar_regras_em_queryset(qs)
+    return JsonResponse({"ok": True, "fatura_id": fatura.id, "result": res})

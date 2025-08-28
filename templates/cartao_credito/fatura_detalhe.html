@@ -7,7 +7,10 @@
     <h1 class="h4 mb-0">
       Fatura ****{{ fatura.cartao_final }} ({{ fatura.bandeira }})
     </h1>
-    <a class="btn btn-outline-secondary btn-sm" href="{% url 'cartao_credito:faturas_list' %}">Voltar</a>
+    <div class="d-flex gap-2">
+      <button id="btn-aplicar-regras" class="btn btn-primary btn-sm">Aplicar regras</button>
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'cartao_credito:faturas_list' %}">Voltar</a>
+    </div>
   </div>
 
   <!-- Info da fatura -->
@@ -59,24 +62,181 @@
     <table class="table align-middle">
       <thead class="table-light">
         <tr>
-          <th style="width: 15%;">Data</th>
+          <th style="width: 12%;">Data</th>
           <th>Descrição</th>
-          <th class="text-end" style="width: 20%;">Valor</th>
+          <th style="width: 40%;">Membros</th>
+          <th class="text-end" style="width: 18%;">Valor</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="tbody-lancamentos">
         {% for l in linhas %}
-          <tr>
+          <tr data-lancamento-id="{{ l.id }}">
             <td>{{ l.data_br }}</td>
             <td>{{ l.descricao }}</td>
+            <td class="text-wrap">
+              <div class="d-flex flex-wrap gap-2 membros-container">
+                <!-- Botão TODOS -->
+                <button type="button"
+                        class="btn btn-sm rounded-pill px-2 py-0 {% if l.membros_ids|length == membros|length and membros|length > 0 %}btn-primary{% else %}btn-outline-primary{% endif %} btn-toggle-todos">
+                  Todos
+                </button>
+
+                <!-- Um botão por membro -->
+                {% for m in membros %}
+                  <button type="button"
+                          class="btn btn-sm rounded-pill px-2 py-0 {% if m.id in l.membros_ids %}btn-primary{% else %}btn-outline-primary{% endif %} btn-toggle-membro"
+                          data-membro-id="{{ m.id }}">
+                    {{ m.nome }}
+                  </button>
+                {% empty %}
+                  <span class="text-muted small">Sem membros cadastrados</span>
+                {% endfor %}
+              </div>
+              <div class="small text-secondary mt-1 d-none status-inline">Salvando…</div>
+            </td>
             <td class="text-end">R$ {{ l.valor_br }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="3" class="text-center text-secondary py-4">Sem lançamentos.</td></tr>
+          <tr><td colspan="4" class="text-center text-secondary py-4">Sem lançamentos.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
 </div>
+
+<script>
+// -------- CSRF (Django) --------
+function getCookie(name) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+}
+const csrftoken = getCookie('csrftoken');
+
+// -------- Helpers UI --------
+function setRowSaving(row, saving) {
+  const status = row.querySelector('.status-inline');
+  const buttons = row.querySelectorAll('.btn-toggle-membro, .btn-toggle-todos');
+  buttons.forEach(b => b.disabled = !!saving);
+  if (status) status.classList.toggle('d-none', !saving);
+}
+function flashRow(row, ok=true) {
+  const cls = ok ? 'table-success' : 'table-danger';
+  row.classList.add(cls);
+  setTimeout(() => row.classList.remove(cls), ok ? 600 : 900);
+}
+
+// -------- Toggle 1 membro --------
+document.addEventListener('click', function (ev) {
+  const btn = ev.target.closest('.btn-toggle-membro');
+  if (!btn) return;
+
+  const row = btn.closest('tr[data-lancamento-id]');
+  const lancamentoId = row.getAttribute('data-lancamento-id');
+  const membroId = btn.dataset.membroId;
+
+  setRowSaving(row, true);
+
+  fetch("{% url 'cartao_credito:lancamento_toggle_membro' lancamento_id=0 %}".replace('/0/', `/${lancamentoId}/`), {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': csrftoken,
+      'X-Requested-With': 'XMLHttpRequest',
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+    },
+    body: new URLSearchParams({ membro_id: membroId }).toString(),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.ok) throw new Error('Falha ao salvar');
+    btn.classList.toggle('btn-primary', data.ativo);
+    btn.classList.toggle('btn-outline-primary', !data.ativo);
+
+    const allMemberBtns = Array.from(row.querySelectorAll('.btn-toggle-membro'));
+    const allActive = allMemberBtns.every(b => b.classList.contains('btn-primary'));
+    const btnTodos = row.querySelector('.btn-toggle-todos');
+    if (btnTodos) {
+      btnTodos.classList.toggle('btn-primary', allActive);
+      btnTodos.classList.toggle('btn-outline-primary', !allActive);
+    }
+    flashRow(row, true);
+  })
+  .catch(() => flashRow(row, false))
+  .finally(() => setRowSaving(row, false));
+});
+
+// -------- Toggle TODOS --------
+document.addEventListener('click', function (ev) {
+  const btn = ev.target.closest('.btn-toggle-todos');
+  if (!btn) return;
+
+  const row = btn.closest('tr[data-lancamento-id]');
+  const lancamentoId = row.getAttribute('data-lancamento-id');
+
+  setRowSaving(row, true);
+
+  fetch("{% url 'cartao_credito:lancamento_toggle_todos' lancamento_id=0 %}".replace('/0/', `/${lancamentoId}/`), {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': csrftoken,
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.ok) throw new Error('Falha ao salvar');
+    const active = !!data.todos;
+    const allBtns = row.querySelectorAll('.btn-toggle-membro, .btn-toggle-todos');
+    allBtns.forEach(b => {
+      b.classList.toggle('btn-primary', active);
+      b.classList.toggle('btn-outline-primary', !active);
+    });
+    flashRow(row, true);
+  })
+  .catch(() => flashRow(row, false))
+  .finally(() => setRowSaving(row, false));
+});
+
+// -------- Botão Aplicar Regras na fatura --------
+document.getElementById('btn-aplicar-regras')?.addEventListener('click', function () {
+  const btn = this;
+  btn.disabled = true;
+  const original = btn.innerText;
+  btn.innerText = 'Aplicando...';
+
+  fetch("{% url 'cartao_credito:regra_aplicar_fatura' fatura.id %}", {
+    method: 'POST',
+    headers: {'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest'},
+  }).then(r => r.json()).then(data => {
+    if (!data.ok) throw new Error();
+    const map = data.result || {};
+    Object.entries(map).forEach(([lid, mids]) => {
+      const row = document.querySelector(`tr[data-lancamento-id="${lid}"]`);
+      if (!row) return;
+      const membrosBtns = row.querySelectorAll('.btn-toggle-membro');
+      membrosBtns.forEach(b => {
+        const id = parseInt(b.dataset.membroId, 10);
+        const ativo = mids.includes(id);
+        b.classList.toggle('btn-primary', ativo);
+        b.classList.toggle('btn-outline-primary', !ativo);
+      });
+      const btnTodos = row.querySelector('.btn-toggle-todos');
+      if (btnTodos) {
+        const total = {{ membros|length }};
+        const all = (total > 0 && mids.length === total);
+        btnTodos.classList.toggle('btn-primary', all);
+        btnTodos.classList.toggle('btn-outline-primary', !all);
+      }
+      row.classList.add('table-success');
+      setTimeout(() => row.classList.remove('table-success'), 600);
+    });
+  }).catch(() => {
+    alert('Não foi possível aplicar as regras agora.');
+  }).finally(() => {
+    btn.disabled = false;
+    btn.innerText = original;
+  });
+});
+</script>
 {% endblock %}
