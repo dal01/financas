@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% load static %}
+{% load formatadores %}
+
+{% block content %}
+<div class="container py-4">
+
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h1 class="h4 mb-0">Resumo Anual por Membro — {{ ano }}</h1>
+
+    <form class="d-flex gap-2" method="get">
+      <select class="form-select" name="ano" style="min-width: 140px;">
+        {% for a in anos_disponiveis %}
+          <option value="{{ a }}" {% if a == ano %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary">Filtrar</button>
+    </form>
+  </div>
+
+  <!-- GERAL -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Geral (Conta Corrente + Cartão)</h2>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th style="min-width: 180px;">Membro</th>
+              {% for m in meses_label %}
+                <th class="text-end">{{ m }}</th>
+              {% endfor %}
+              <th class="text-end">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in geral.rows %}
+              <tr>
+                <td>{{ row.membro.nome }}</td>
+                {% for v in row.mensal %}
+                  <td class="text-end">{{ v|moeda_brasileira }}</td>
+                {% endfor %}
+                <td class="text-end fw-semibold">{{ row.total|moeda_brasileira }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="{{ 14 }}">Sem dados para {{ ano }}.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTA CORRENTE -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Somente Conta Corrente</h2>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th style="min-width: 180px;">Membro</th>
+              {% for m in meses_label %}
+                <th class="text-end">{{ m }}</th>
+              {% endfor %}
+              <th class="text-end">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in conta_corrente.rows %}
+              <tr>
+                <td>{{ row.membro.nome }}</td>
+                {% for v in row.mensal %}
+                  <td class="text-end">{{ v|moeda_brasileira }}</td>
+                {% endfor %}
+                <td class="text-end fw-semibold">{{ row.total|moeda_brasileira }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="{{ 14 }}">Sem dados de conta corrente para {{ ano }}.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARTÃO DE CRÉDITO -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Somente Cartão de Crédito</h2>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th style="min-width: 180px;">Membro</th>
+              {% for m in meses_label %}
+                <th class="text-end">{{ m }}</th>
+              {% endfor %}
+              <th class="text-end">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in cartao_credito.rows %}
+              <tr>
+                <td>{{ row.membro.nome }}</td>
+                {% for v in row.mensal %}
+                  <td class="text-end">{{ v|moeda_brasileira }}</td>
+                {% endfor %}
+                <td class="text-end fw-semibold">{{ row.total|moeda_brasileira }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="{{ 14 }}">Sem dados de cartão para {{ ano }}.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <p class="text-muted small">
+    Observação: cada transação/lançamento é dividido igualmente entre os membros atribuídos (ex.: R$ 100 com 4 membros ⇒ R$ 25 para cada).
+  </p>
+</div>
+{% endblock %}

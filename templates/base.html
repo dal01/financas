@@ -65,9 +65,14 @@
               Relatórios
             </a>
             <ul class="dropdown-menu" aria-labelledby="relatoriosDropdown">
-              <li><a class="dropdown-item" href="{% url 'relatorios:gastos_membro' %}">Gastos por Membro</a></li>
+              <li>
+                <a class="dropdown-item" href="{% url 'relatorios:resumo_anual' %}">
+                  Gastos por Membro (Anual)
+                </a>
+              </li>
             </ul>
           </li>
+
         </ul>
 
         {% block nav_right %}{% endblock %}

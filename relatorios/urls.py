@@ -1,8 +1,8 @@
 from django.urls import path
-from relatorios.views.gastos_membro import gastos_por_membro
+from .views.resumo_anual import resumo_anual
 
 app_name = "relatorios"
 
 urlpatterns = [
-    path("gastos-membro/", gastos_por_membro, name="gastos_membro"),
+    path("resumo-anual/", resumo_anual, name="resumo_anual"),
 ]
