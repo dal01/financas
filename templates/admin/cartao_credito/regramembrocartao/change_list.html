@@ -1,0 +1,13 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  <li>
+    <form action="{% url 'admin:cartao_credito_regramembrocartao_aplicar_regras_todas' %}" method="post" style="display:inline;">
+      {% csrf_token %}
+      <button type="submit" class="button" title="Executa as regras de membro em TODOS os lançamentos (pula os que já têm membros)">
+        Aplicar regras em todos os lançamentos
+      </button>
+    </form>
+  </li>
+{% endblock %}

@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import redirect
+from django.urls import path
 
 from cartao_credito.models import (
     Cartao,
@@ -7,6 +12,7 @@ from cartao_credito.models import (
     Lancamento,
     RegraMembroCartao,
 )
+from cartao_credito.services.regras import aplicar_regras_em_queryset
 
 
 # ----------------- CARTÃO -----------------
@@ -27,6 +33,21 @@ class FaturaCartaoAdmin(admin.ModelAdmin):
     autocomplete_fields = ("cartao",)
     date_hierarchy = "competencia"
     ordering = ("-competencia", "cartao")
+    actions = ["acao_aplicar_regras_lancamentos"]
+
+    @admin.action(description="Aplicar regras de membro nos lançamentos das faturas selecionadas (pula os que já têm membros)")
+    def acao_aplicar_regras_lancamentos(self, request, queryset):
+        qs_l = Lancamento.objects.filter(fatura__in=queryset)
+        res = aplicar_regras_em_queryset(qs_l, pular_se_ja_tem_membros=True)
+        total_alterados = len(res)
+        if total_alterados:
+            self.message_user(request, f"Regras aplicadas em {total_alterados} lançamento(s).", level=messages.SUCCESS)
+        else:
+            self.message_user(
+                request,
+                "Nenhum lançamento alterado (todos já tinham membros ou nenhuma regra casou).",
+                level=messages.INFO,
+            )
 
 
 # ----------------- LANÇAMENTO -----------------
@@ -39,9 +60,24 @@ class LancamentoAdmin(admin.ModelAdmin):
     filter_horizontal = ("membros",)
     date_hierarchy = "data"
     ordering = ("-data", "id")
+    actions = ["acao_aplicar_regras_membros"]
+
+    @admin.action(description="Aplicar regras de membro (pula lançamentos já com membros)")
+    def acao_aplicar_regras_membros(self, request, queryset):
+        # Respeita filtros e "selecionar todos" (select_across)
+        res = aplicar_regras_em_queryset(queryset, pular_se_ja_tem_membros=True)
+        total_alterados = len(res)
+        if total_alterados:
+            self.message_user(request, f"Regras aplicadas em {total_alterados} lançamento(s).", level=messages.SUCCESS)
+        else:
+            self.message_user(
+                request,
+                "Nenhum lançamento alterado (todos já tinham membros ou nenhuma regra casou).",
+                level=messages.INFO,
+            )
 
 
-# ----------------- REGRA MEMBRO CARTÃO -----------------
+# ----------------- FORM DA REGRA -----------------
 class RegraMembroCartaoForm(forms.ModelForm):
     class Meta:
         model = RegraMembroCartao
@@ -50,8 +86,10 @@ class RegraMembroCartaoForm(forms.ModelForm):
             "valor": forms.NumberInput(attrs={"step": "0.01", "inputmode": "decimal"}),
         }
         help_texts = {
-            "valor": "Se você informar um valor, o tipo será ajustado para 'Igual' automaticamente. "
-                     "Você ainda pode escolher 'Maior' ou 'Menor'. Deixe vazio para 'Sem condição de valor'.",
+            "valor": (
+                "Se você informar um valor, o tipo será ajustado para 'Igual' automaticamente. "
+                "Você ainda pode escolher 'Maior' ou 'Menor'. Deixe vazio para 'Sem condição de valor'."
+            ),
         }
 
     def clean(self):
@@ -74,6 +112,7 @@ class RegraMembroCartaoForm(forms.ModelForm):
         return cleaned
 
 
+# ----------------- REGRA MEMBRO CARTÃO -----------------
 @admin.register(RegraMembroCartao)
 class RegraMembroCartaoAdmin(admin.ModelAdmin):
     form = RegraMembroCartaoForm
@@ -84,7 +123,53 @@ class RegraMembroCartaoAdmin(admin.ModelAdmin):
     filter_horizontal = ("membros",)
     ordering = ("prioridade", "nome")
 
-    # Se você quiser adicionar JS para UX no admin (ajuste automático do tipo ao digitar valor),
-    # basta disponibilizar um arquivo estático e referenciá-lo aqui:
+    # Template custom na change list para injetar o botão global
+    change_list_template = "admin/cartao_credito/regramembrocartao/change_list.html"
+
+    # ------- botão "Aplicar regras em todos os lançamentos" -------
+    def get_urls(self):
+        urls = super().get_urls()
+        my_urls = [
+            path(
+                "aplicar-regras-todas/",
+                self.admin_site.admin_view(self.view_aplicar_regras_todas),
+                name="cartao_credito_regramembrocartao_aplicar_regras_todas",
+            ),
+        ]
+        return my_urls + urls
+
+    def view_aplicar_regras_todas(self, request):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+
+        # Apenas POST por segurança (CSRF)
+        if request.method != "POST":
+            return redirect("admin:cartao_credito_regramembrocartao_changelist")
+
+        qs_l = (
+            Lancamento.objects
+            .all()
+            .select_related("fatura", "fatura__cartao", "fatura__cartao__membro")
+            .prefetch_related("membros")
+        )
+        res = aplicar_regras_em_queryset(qs_l, pular_se_ja_tem_membros=True)
+        total_alterados = len(res)
+
+        if total_alterados:
+            self.message_user(
+                request,
+                f"Regras aplicadas em {total_alterados} lançamento(s).",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                "Nenhum lançamento alterado (todos já tinham membros ou nenhuma regra casou).",
+                level=messages.INFO,
+            )
+
+        return redirect("admin:cartao_credito_regramembrocartao_changelist")
+
     class Media:
+        # JS opcional (se quiser autoajustar tipo_valor ao digitar valor)
         js = ("cartao_credito/js/regra_membro_cartao_admin.js",)

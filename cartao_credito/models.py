@@ -200,7 +200,19 @@ class RegraMembroCartao(models.Model):
         return f"{self.nome} ({self.get_tipo_padrao_display()})"
 
     # --- lógica principal da regra ---
-    def aplica_para(self, descricao: str, valor: Decimal) -> bool:
+    def aplica_para(
+        self,
+        descricao: str,
+        valor: Decimal,
+        *,
+        cartao_membro_id: int | None = None,
+        **_
+    ) -> bool:
+        """
+        Verifica se a regra casa com (descricao, valor).
+        Param extra `cartao_membro_id` vem do titular do cartão; use se quiser
+        que a regra dependa do titular. Mantido opcional para compat.
+        """
         if not self.ativo:
             return False
 
