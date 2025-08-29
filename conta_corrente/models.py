@@ -45,7 +45,6 @@ class Conta(models.Model):
             models.UniqueConstraint(
                 fields=["instituicao", "agencia", "numero"],
                 name="uniq_conta_por_banco_agencia_numero",
-                deferrable=models.Deferrable.DEFERRED,
             ),
         ]
 
@@ -63,9 +62,8 @@ class Transacao(models.Model):
     descricao = models.CharField(max_length=255)
     valor = models.DecimalField(max_digits=12, decimal_places=2)
     saldo = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
-
-    # 👇 novo
-    oculta_manual = models.BooleanField(default=False)
+    oculta = models.BooleanField(default=False, db_index=True)
+    oculta_manual = models.BooleanField(default=False, db_index=True)
     membros = models.ManyToManyField(
         Membro,
         blank=True,

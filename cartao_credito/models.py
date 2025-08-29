@@ -107,6 +107,8 @@ class Lancamento(models.Model):
     cidade = models.CharField(max_length=80, blank=True, null=True)
     pais = models.CharField(max_length=8, blank=True, null=True)           # "BR", "US", etc.
     secao = models.CharField(max_length=40, blank=True, null=True)         # "ENCARGOS", etc.
+    oculta = models.BooleanField(default=False, db_index=True)
+    oculta_manual = models.BooleanField(default=False, db_index=True)
 
     # Valor final em BRL
     valor = models.DecimalField(max_digits=12, decimal_places=2)

@@ -14,6 +14,12 @@ from cartao_credito.models import Lancamento
 M2M_MEMBROS_FIELD = "membros"
 TRANSACAO_DATA_FIELD = "data"
 
+def _has_field(model, field_name: str) -> bool:
+    try:
+        return any(f.name == field_name for f in model._meta.get_fields())
+    except Exception:
+        return False
+
 def _valor_despesa_conta_corrente(v: Decimal) -> Decimal:
     # Despesa em conta corrente: valores negativos -> positivos (gasto)
     return -v if v < 0 else Decimal("0")
@@ -42,13 +48,19 @@ def _distribui_por_membros(obj, valor_total: Decimal, matriz: Dict[int, List[Dec
         _add(matriz, m.id, mes_idx_0_11, quota)
 
 def _anos_disponiveis() -> List[int]:
-    anos_cc = [d.year for d in Transacao.objects.dates(TRANSACAO_DATA_FIELD, "year")]
+    # Anos com dados VISÍVEIS (oculta=False) em CC e (se existir) Cartão
+    qs_cc = Transacao.objects.all()
+    if _has_field(Transacao, "oculta"):
+        qs_cc = qs_cc.filter(oculta=False)
+    anos_cc = [d.year for d in qs_cc.dates(TRANSACAO_DATA_FIELD, "year")]
+
+    qs_cart = Lancamento.objects.select_related("fatura")
+    if _has_field(Lancamento, "oculta"):
+        qs_cart = qs_cart.filter(oculta=False)
     anos_cartao = list(
-        Lancamento.objects
-        .select_related("fatura")
-        .values_list("fatura__competencia__year", flat=True)
-        .distinct()
+        qs_cart.values_list("fatura__competencia__year", flat=True).distinct()
     )
+
     anos = sorted(set(anos_cc + anos_cartao), reverse=True)
     if not anos:
         anos = [timezone.localdate().year]
@@ -66,7 +78,6 @@ def _to_rows(matriz: Dict[int, List[Decimal]], membros: List[Membro]) -> List[di
 def _footer_totais(matriz: Dict[int, List[Decimal]]) -> dict | None:
     if not matriz:
         return None
-    # soma por coluna (mês)
     mensal = [Decimal("0")] * 12
     for lista in matriz.values():
         for i in range(12):
@@ -81,7 +92,7 @@ def _pacote_tabela(matriz: Dict[int, List[Decimal]], membros: List[Membro]) -> d
 
 def resumo_anual(request):
     """
-    Resumo anual de gastos por membro, mês a mês:
+    Resumo anual de gastos por membro, mês a mês, respeitando ocultação:
       1) Geral (Conta Corrente + Cartão)
       2) Somente Conta Corrente
       3) Somente Cartão de Crédito
@@ -114,10 +125,11 @@ def resumo_anual(request):
     matriz_cc = _init_matriz(membros)
     matriz_cartao = _init_matriz(membros)
 
-    # Conta Corrente
+    # ---------------- Conta Corrente (apenas visíveis) ----------------
     transacoes = (
         Transacao.objects
         .filter(**{f"{TRANSACAO_DATA_FIELD}__year": ano})
+        .filter(oculta=False)  # <<<<<<<<<<<<<<<<<<<<< aplica ocultação
         .prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
     )
     for t in transacoes:
@@ -131,13 +143,18 @@ def resumo_anual(request):
         _distribui_por_membros(t, val, matriz_cc, mes_idx)
         _distribui_por_membros(t, val, matriz_geral, mes_idx)
 
-    # Cartão (por fatura)
+    # ---------------- Cartão (por fatura) ----------------
     lancs = (
         Lancamento.objects
         .select_related("fatura")
         .filter(fatura__competencia__year=ano)
-        .prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
     )
+    # Só filtra se existir 'oculta' no modelo de cartão (fica compatível com hoje e com o futuro)
+    if _has_field(Lancamento, "oculta"):
+        lancs = lancs.filter(oculta=False)
+
+    lancs = lancs.prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
+
     for l in lancs:
         if not getattr(l, "fatura", None) or not l.fatura.competencia:
             continue
