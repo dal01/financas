@@ -61,10 +61,12 @@
     <table class="table align-middle">
       <thead class="table-light">
         <tr>
-          <th style="width: 12%;">Data</th>
+          <th style="width: 10%;">Data</th>
           <th>Descrição</th>
           <th style="width: 40%;">Membros</th>
-          <th class="text-end" style="width: 18%;">Valor</th>
+          <!-- nova coluna antes de Valor -->
+          <th class="text-end text-secondary small" style="width: 14%;">Total compra</th>
+          <th class="text-end" style="width: 14%;">Valor</th>
         </tr>
       </thead>
       <tbody id="tbody-lancamentos">
@@ -72,6 +74,7 @@
           <tr data-lancamento-id="{{ l.id }}">
             <td>{{ l.data_br }}</td>
             <td>{{ l.descricao }}</td>
+
             <td class="text-wrap">
               <div class="d-flex flex-wrap gap-2 membros-container">
                 <!-- Botão TODOS -->
@@ -93,10 +96,16 @@
               </div>
               <div class="small text-secondary mt-1 d-none status-inline">Salvando…</div>
             </td>
+
+            <!-- nova célula: Total compra (apenas visual) -->
+            <td class="text-end text-secondary small">
+              {% if l.valor_total_compra_br %}R$ {{ l.valor_total_compra_br }}{% else %}—{% endif %}
+            </td>
+
             <td class="text-end">R$ {{ l.valor_br }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="4" class="text-center text-secondary py-4">Sem lançamentos.</td></tr>
+          <tr><td colspan="5" class="text-center text-secondary py-4">Sem lançamentos.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -197,7 +206,7 @@ document.addEventListener('click', function (ev) {
   .finally(() => setRowSaving(row, false));
 });
 
-// -------- Botão Aplicar Regras na fatura --------
+// -------- Botão Aplicar Regras na fatura (se existir no HTML) --------
 document.getElementById('btn-aplicar-regras')?.addEventListener('click', function () {
   const btn = this;
   btn.disabled = true;

@@ -155,12 +155,19 @@ def fatura_detalhe(request: HttpRequest, fatura_id: str):
 
     linhas = []
     for l in lancs:
+        # total da compra parcelada (somente visual): valor * parcela_total, quando parcelado
+        parc_total = (getattr(l, "parcela_total", None) or 0)
+        valor_total_compra = None
+        if parc_total and parc_total > 1 and l.valor is not None:
+            valor_total_compra = (l.valor or Decimal("0")) * Decimal(parc_total)
+
         linhas.append({
             "id": l.id,
             "data_br": data_br(l.data),
             "descricao": l.descricao,
             "valor_br": moeda_br(l.valor),
             "membros_ids": [m.id for m in l.membros.all()],
+            "valor_total_compra_br": moeda_br(valor_total_compra) if valor_total_compra is not None else "",
         })
 
     cartao = fatura.cartao
@@ -238,6 +245,7 @@ def regra_aplicar_lancamento(request: HttpRequest, lancamento_id: int):
     l = get_object_or_404(Lancamento, pk=lancamento_id)
     ids = aplicar_regras_em_lancamento(l)
     return JsonResponse({"ok": True, "lancamento_id": l.id, "membros_ids": ids})
+
 
 @require_POST
 def regra_aplicar_fatura(request: HttpRequest, fatura_id: int):

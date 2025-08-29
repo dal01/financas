@@ -18,6 +18,33 @@
     </form>
   </div>
 
+  {# ===== CARDS: média por membro considerando apenas meses com valor > 0 (Geral) ===== #}
+  {% if medias_por_membro %}
+  <div class="row g-3 mb-4">
+    {% for item in medias_por_membro %}
+      <div class="col-12 col-sm-6 col-lg-4 col-xl-3">
+        <div class="card h-100 shadow-sm">
+          <div class="card-body">
+            <div class="d-flex align-items-start justify-content-between">
+              <div>
+                <div class="text-muted small mb-1">Média mensal</div>
+                <div class="h5 mb-1">{{ item.media|moeda_brasileira }}</div>
+                <div class="fw-semibold">{{ item.membro.nome }}</div>
+              </div>
+              <span class="badge text-bg-secondary" title="Meses com gasto &gt; 0">
+                {{ item.meses_positivos }}&nbsp;mes{% if item.meses_positivos != 1 %}es{% endif %}
+              </span>
+            </div>
+            <div class="text-muted small mt-2">
+              Total no ano: <strong>{{ item.total|moeda_brasileira }}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <!-- GERAL -->
   <div class="card mb-4">
     <div class="card-body">
@@ -151,7 +178,9 @@
   </div>
 
   <p class="text-muted small">
-    Observação: cada transação/lançamento é dividido igualmente entre os membros atribuídos (ex.: R$ 100 com 4 membros ⇒ R$ 25 para cada).
+    Observação: cada transação/lançamento é dividido igualmente entre os membros atribuídos
+    (ex.: R$ 100 com 4 membros ⇒ R$ 25 para cada).
+    A média no topo considera <em>apenas</em> os meses em que o membro teve gasto &gt; 0 no total “Geral”.
   </p>
 </div>
 {% endblock %}

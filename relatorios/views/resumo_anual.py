@@ -1,5 +1,5 @@
 from __future__ import annotations
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List, Iterable
 from datetime import date
 
@@ -44,7 +44,7 @@ def _distribui_por_membros(obj, valor_total: Decimal, matriz: Dict[int, List[Dec
     if not membros or valor_total == 0:
         return
     quota = (valor_total / Decimal(len(membros))).quantize(Decimal("0.01"))
-    # Se quiser zerar resíduos de arredondamento:
+    # Ajuste de resíduo para fechar exatamente o total
     resto = valor_total - quota * len(membros)
     for i, m in enumerate(membros):
         val = quota + (resto if i == len(membros) - 1 else Decimal("0"))
@@ -90,6 +90,37 @@ def _pacote_tabela(matriz: Dict[int, List[Decimal]], membros: List[Membro]) -> d
     footer = _footer_totais(matriz) if rows else None
     return {"rows": rows, "footer": footer}
 
+def _medias_mensais_por_membro_apenas_meses_positivos(
+    matriz_geral: Dict[int, List[Decimal]],
+    membros: List[Membro],
+) -> List[dict]:
+    """
+    Para cada membro, calcula:
+      - total_ano = soma dos 12 meses
+      - meses_positivos = quantidade de meses com valor > 0
+      - media = total_ano / meses_positivos (se meses_positivos > 0; senão 0)
+    Retorna lista com {membro, media, meses_positivos, total}.
+    """
+    saida = []
+    TWO = Decimal("0.01")
+    for m in membros:
+        mensal = matriz_geral[m.id]
+        total = sum(mensal, Decimal("0"))
+        meses_positivos = sum(1 for v in mensal if v > 0)
+        if meses_positivos > 0:
+            media = (total / Decimal(meses_positivos)).quantize(TWO, rounding=ROUND_HALF_UP)
+        else:
+            media = Decimal("0.00")
+        saida.append({
+            "membro": m,
+            "media": media,
+            "meses_positivos": meses_positivos,
+            "total": total,
+        })
+    # Ordena por maior média
+    saida.sort(key=lambda x: x["media"], reverse=True)
+    return saida
+
 def resumo_anual(request):
     """
     Resumo anual por membro (CC + Cartão), respeitando ocultas.
@@ -116,6 +147,7 @@ def resumo_anual(request):
                 "geral": {"rows": [], "footer": None},
                 "conta_corrente": {"rows": [], "footer": None},
                 "cartao_credito": {"rows": [], "footer": None},
+                "medias_por_membro": [],
             },
         )
 
@@ -123,13 +155,15 @@ def resumo_anual(request):
     matriz_cc = _init_matriz(membros)
     matriz_cartao = _init_matriz(membros)
 
-    # -------- Conta Corrente (ocultas=False) --------
+    # -------- Conta Corrente (ocultas=False se existir campo) --------
     transacoes = (
         Transacao.objects
         .filter(**{f"{TRANSACAO_DATA_FIELD}__year": ano})
-        .filter(oculta=False)
-        .prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
     )
+    if _has_field(Transacao, "oculta"):
+        transacoes = transacoes.filter(oculta=False)
+    transacoes = transacoes.prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
+
     for t in transacoes:
         d: date | None = getattr(t, TRANSACAO_DATA_FIELD, None)
         if not d or d.year != ano:
@@ -158,20 +192,29 @@ def resumo_anual(request):
         if comp.year != ano:
             continue
         mes_idx = comp.month - 1
-        # agora NET: positivo = gasto; negativo = estorno (subtrai)
+        # NET: positivo = gasto; negativo = estorno (subtrai)
         val = _valor_despesa_cartao(getattr(l, "valor", Decimal("0")))
         if val == 0:
             continue
         _distribui_por_membros(l, val, matriz_cartao, mes_idx)
         _distribui_por_membros(l, val, matriz_geral, mes_idx)
 
+    # Pacotes de tabela
+    pacote_geral = _pacote_tabela(matriz_geral, membros)
+    pacote_cc = _pacote_tabela(matriz_cc, membros)
+    pacote_cartao = _pacote_tabela(matriz_cartao, membros)
+
+    # Médias por membro considerando apenas meses com valor > 0 no GERAL
+    medias_por_membro = _medias_mensais_por_membro_apenas_meses_positivos(matriz_geral, membros)
+
     contexto = {
         "app_ns": "relatorios",
         "ano": ano,
         "anos_disponiveis": anos,
         "meses_label": MESES_LABEL,
-        "geral": _pacote_tabela(matriz_geral, membros),
-        "conta_corrente": _pacote_tabela(matriz_cc, membros),
-        "cartao_credito": _pacote_tabela(matriz_cartao, membros),
+        "geral": pacote_geral,
+        "conta_corrente": pacote_cc,
+        "cartao_credito": pacote_cartao,
+        "medias_por_membro": medias_por_membro,
     }
     return render(request, "relatorios/resumo_anual.html", contexto)
