@@ -1,0 +1,227 @@
+{# templates/classificacao/gastos.html #}
+{% extends "base.html" %}
+{% load static %}
+{% load formatadores %}
+
+{% block title %}Classificação de Gastos{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+  <div class="d-flex align-items-center justify-content-between mb-3 gap-2 flex-wrap">
+    <h1 class="h5 mb-0">{{ title }}</h1>
+
+    <form method="get" class="d-flex gap-2">
+      <input type="hidden" name="fonte" value="{{ fonte }}">
+      <input type="search" class="form-control" name="busca" placeholder="Buscar descrição…" value="{{ busca }}">
+      <select class="form-select" name="pp" style="max-width:120px">
+        <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
+        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+      </select>
+      <button class="btn btn-outline-secondary" type="submit">Filtrar</button>
+    </form>
+  </div>
+
+  <!-- Abas -->
+  <ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+      <a class="nav-link {% if fonte == 'cc' %}active{% endif %}" href="?fonte=cc&busca={{ busca|urlencode }}&pp={{ per_page }}">Conta Corrente</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if fonte == 'cartao' %}active{% endif %}" href="?fonte=cartao&busca={{ busca|urlencode }}&pp={{ per_page }}">Cartão</a>
+    </li>
+  </ul>
+
+  <!-- Ações em lote -->
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <button id="btn-atribuir" class="btn btn-primary btn-sm" disabled>Atribuir categoria</button>
+    <span id="sel-count" class="text-muted small">0 selecionadas</span>
+  </div>
+
+  <!-- Tabela -->
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th style="width:28px"><input type="checkbox" id="check-all"></th>
+          <th style="width:120px">Data</th>
+          <th>Descrição</th>
+          <th class="text-end" style="width:160px">Valor</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for obj in page_obj %}
+          <tr>
+            <td><input type="checkbox" class="row-check" value="{{ obj.id }}"></td>
+            <td>{{ obj|attr:cols.col_data|date:"d/m/Y" }}</td>
+            <td>{{ obj|attr:cols.col_desc }}</td>
+            <td class="text-end">{{ obj|attr:cols.col_val|moeda_brasileira }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="text-center text-muted py-4">Nada a classificar.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Paginação -->
+  {% if page_obj.paginator.num_pages > 1 %}
+  <nav>
+    <ul class="pagination pagination-sm">
+      {% if page_obj.has_previous %}
+      <li class="page-item"><a class="page-link" href="?fonte={{ fonte }}&busca={{ busca|urlencode }}&pp={{ per_page }}&page={{ page_obj.previous_page_number }}">«</a></li>
+      {% else %}
+      <li class="page-item disabled"><span class="page-link">«</span></li>
+      {% endif %}
+      <li class="page-item disabled"><span class="page-link">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span></li>
+      {% if page_obj.has_next %}
+      <li class="page-item"><a class="page-link" href="?fonte={{ fonte }}&busca={{ busca|urlencode }}&pp={{ per_page }}&page={{ page_obj.next_page_number }}">»</a></li>
+      {% else %}
+      <li class="page-item disabled"><span class="page-link">»</span></li>
+      {% endif %}
+    </ul>
+  </nav>
+  {% endif %}
+
+</div>
+
+<!-- Modal de Categoria -->
+<div class="modal fade" id="modalCategoria" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title">Atribuir categoria</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+
+        <div class="mb-2">
+          <label class="form-label mb-1">Macro</label>
+          <select id="sel-macro" class="form-select form-select-sm">
+            <option value="">– selecione –</option>
+            {% for m in macros %}
+              <option value="{{ m.id }}">{{ m.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="form-label mb-1">Subcategoria</label>
+          <select id="sel-sub" class="form-select form-select-sm" disabled>
+            <option value="">– selecione a macro –</option>
+          </select>
+        </div>
+
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary btn-sm" id="btn-confirmar" disabled>Aplicar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// CSRF helper
+function getCookie(name) {
+  const cookieStr = document.cookie;
+  if (!cookieStr) return null;
+  const cookies = cookieStr.split(';');
+  for (let c of cookies) {
+    c = c.trim();
+    if (c.startsWith(name + '=')) return decodeURIComponent(c.substring(name.length + 1));
+  }
+  return null;
+}
+const CSRF_TOKEN = getCookie('csrftoken');
+
+(function(){
+  const fonte = "{{ fonte }}";
+  const checkAll = document.getElementById('check-all');
+  const btnAtribuir = document.getElementById('btn-atribuir');
+  const selCount = document.getElementById('sel-count');
+  const selMacro = document.getElementById('sel-macro');
+  const selSub = document.getElementById('sel-sub');
+  const btnConfirmar = document.getElementById('btn-confirmar');
+  const modalEl = document.getElementById('modalCategoria');
+  const modal = new bootstrap.Modal(modalEl);
+
+  const checks = () => Array.from(document.querySelectorAll('.row-check'));
+
+  function updateSelection() {
+    const selected = checks().filter(c => c.checked).length;
+    selCount.textContent = `${selected} selecionadas`;
+    btnAtribuir.disabled = selected === 0;
+  }
+
+  checkAll?.addEventListener('change', e => {
+    checks().forEach(c => c.checked = e.target.checked);
+    updateSelection();
+  });
+  checks().forEach(c => c.addEventListener('change', updateSelection));
+
+  btnAtribuir.addEventListener('click', () => {
+    selMacro.value = '';
+    selSub.innerHTML = '<option value="">– selecione a macro –</option>';
+    selSub.disabled = true;
+    btnConfirmar.disabled = true;
+    modal.show();
+  });
+
+  selMacro.addEventListener('change', async () => {
+    const macroId = selMacro.value;
+    selSub.disabled = true;
+    btnConfirmar.disabled = true;
+    if (!macroId) {
+      selSub.innerHTML = '<option value="">– selecione a macro –</option>';
+      return;
+    }
+    const url = "{% url 'carregar_subcategorias_ajax' %}" + `?macro_id=${macroId}`;
+    const resp = await fetch(url, { credentials: 'same-origin' });
+    const data = await resp.json();
+    selSub.innerHTML = '<option value="">– selecione –</option>';
+    for (const item of data.items) {
+      const opt = document.createElement('option');
+      opt.value = item.id;
+      opt.textContent = item.nome;
+      selSub.appendChild(opt);
+    }
+    selSub.disabled = false;
+  });
+
+  selSub.addEventListener('change', () => {
+    btnConfirmar.disabled = !selSub.value;
+  });
+
+  document.getElementById('btn-confirmar').addEventListener('click', async () => {
+    const ids = checks().filter(c => c.checked).map(c => c.value).join(',');
+    if (!ids || !selSub.value) return;
+
+    const url = "{% url 'atribuir_categoria_ajax' %}";
+    const form = new FormData();
+    form.append('fonte', fonte);
+    form.append('ids', ids);
+    form.append('categoria_id', selSub.value);
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      body: form,
+      headers: { 'X-CSRFToken': CSRF_TOKEN },
+      credentials: 'same-origin',
+    });
+
+    if (resp.ok) {
+      const p = new URLSearchParams(window.location.search);
+      window.location.search = p.toString(); // reload mantendo filtros
+    } else {
+      const txt = await resp.text();
+      alert('Falha ao aplicar categoria.\n' + txt.slice(0, 500));
+    }
+  });
+
+})();
+</script>
+{% endblock %}

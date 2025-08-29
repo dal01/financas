@@ -8,7 +8,7 @@ import re
 # conta_corrente/models.py
 from django.db import models
 from core.models import Membro
-from core.models import InstituicaoFinanceira  # já existia
+from core.models import InstituicaoFinanceira, Categoria
 
 # conta_corrente/models.py
 from django.db import models
@@ -64,6 +64,7 @@ class Transacao(models.Model):
     saldo = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     oculta = models.BooleanField(default=False, db_index=True)
     oculta_manual = models.BooleanField(default=False, db_index=True)
+    categoria = models.ForeignKey(Categoria, null=True, blank=True, on_delete=models.SET_NULL, related_name="transacoes")
     membros = models.ManyToManyField(
         Membro,
         blank=True,

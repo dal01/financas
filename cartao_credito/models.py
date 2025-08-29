@@ -8,7 +8,7 @@ from django.db import models
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 
-from core.models import Membro, InstituicaoFinanceira
+from core.models import Membro, InstituicaoFinanceira, Categoria
 
 
 class Cartao(models.Model):
@@ -109,6 +109,7 @@ class Lancamento(models.Model):
     secao = models.CharField(max_length=40, blank=True, null=True)         # "ENCARGOS", etc.
     oculta = models.BooleanField(default=False, db_index=True)
     oculta_manual = models.BooleanField(default=False, db_index=True)
+    categoria = models.ForeignKey(Categoria, null=True, blank=True, on_delete=models.SET_NULL, related_name="lancamentos")
 
     # Valor final em BRL
     valor = models.DecimalField(max_digits=12, decimal_places=2)

@@ -39,7 +39,7 @@
 
           <!-- Conta Corrente -->
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="ccDropdown" role="button" data-bs-toggle="dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="ccDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Conta Corrente
             </a>
             <ul class="dropdown-menu" aria-labelledby="ccDropdown">
@@ -61,7 +61,7 @@
 
           <!-- Relatórios -->
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="relatoriosDropdown" role="button" data-bs-toggle="dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="relatoriosDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Relatórios
             </a>
             <ul class="dropdown-menu" aria-labelledby="relatoriosDropdown">
@@ -71,6 +71,11 @@
                 </a>
               </li>
             </ul>
+          </li>
+
+          <!-- Classificação (inbox de categorias) -->
+          <li class="nav-item">
+            <a class="nav-link" href="{% url 'classificacao_gastos' %}">Classificação</a>
           </li>
 
         </ul>
@@ -86,21 +91,17 @@
     {% if messages %}
       <div class="mb-3">
         {% for message in messages %}
-          {# Ajuste: se vier "error", o Bootstrap usa "danger" #}
-          {% if message.tags == "error" %}
-            {% with "danger" as level %}
-              <div class="alert alert-{{ level }} mb-2" role="alert">
-                {{ message }}
-              </div>
-            {% endwith %}
+          {% if message.level_tag == "error" %}
+            <div class="alert alert-danger mb-2" role="alert">{{ message }}</div>
           {% else %}
-            <div class="alert alert-{{ message.tags|default:'secondary' }} mb-2" role="alert">
+            <div class="alert alert-{{ message.level_tag|default:"secondary" }} mb-2" role="alert">
               {{ message }}
             </div>
           {% endif %}
         {% endfor %}
       </div>
     {% endif %}
+
 
     {% block content %}{% endblock %}
   </main>
