@@ -21,12 +21,12 @@ def _has_field(model, field_name: str) -> bool:
         return False
 
 def _valor_despesa_conta_corrente(v: Decimal) -> Decimal:
-    # Despesa em conta corrente: valores negativos -> positivos (gasto)
+    # CC: despesas são negativas -> transformamos em positivo; créditos/entradas ignorados
     return -v if v < 0 else Decimal("0")
 
 def _valor_despesa_cartao(v: Decimal) -> Decimal:
-    # Despesa em cartão: valores positivos são gastos
-    return v if v > 0 else Decimal("0")
+    # Cartão: manter o sinal para que estornos (negativos) abatam o total
+    return Decimal(v or 0)
 
 MESES_LABEL = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
 
@@ -44,11 +44,13 @@ def _distribui_por_membros(obj, valor_total: Decimal, matriz: Dict[int, List[Dec
     if not membros or valor_total == 0:
         return
     quota = (valor_total / Decimal(len(membros))).quantize(Decimal("0.01"))
-    for m in membros:
-        _add(matriz, m.id, mes_idx_0_11, quota)
+    # Se quiser zerar resíduos de arredondamento:
+    resto = valor_total - quota * len(membros)
+    for i, m in enumerate(membros):
+        val = quota + (resto if i == len(membros) - 1 else Decimal("0"))
+        _add(matriz, m.id, mes_idx_0_11, val)
 
 def _anos_disponiveis() -> List[int]:
-    # Anos com dados VISÍVEIS (oculta=False) em CC e (se existir) Cartão
     qs_cc = Transacao.objects.all()
     if _has_field(Transacao, "oculta"):
         qs_cc = qs_cc.filter(oculta=False)
@@ -57,9 +59,7 @@ def _anos_disponiveis() -> List[int]:
     qs_cart = Lancamento.objects.select_related("fatura")
     if _has_field(Lancamento, "oculta"):
         qs_cart = qs_cart.filter(oculta=False)
-    anos_cartao = list(
-        qs_cart.values_list("fatura__competencia__year", flat=True).distinct()
-    )
+    anos_cartao = list(qs_cart.values_list("fatura__competencia__year", flat=True).distinct())
 
     anos = sorted(set(anos_cc + anos_cartao), reverse=True)
     if not anos:
@@ -92,11 +92,9 @@ def _pacote_tabela(matriz: Dict[int, List[Decimal]], membros: List[Membro]) -> d
 
 def resumo_anual(request):
     """
-    Resumo anual de gastos por membro, mês a mês, respeitando ocultação:
-      1) Geral (Conta Corrente + Cartão)
-      2) Somente Conta Corrente
-      3) Somente Cartão de Crédito
-    Para cartão, usa fatura.competencia como referência de mês.
+    Resumo anual por membro (CC + Cartão), respeitando ocultas.
+    CC: só despesas (negativas)
+    Cartão: despesas (positivas) menos estornos/créditos (negativos)
     """
     hoje = timezone.localdate()
     anos = _anos_disponiveis()
@@ -125,11 +123,11 @@ def resumo_anual(request):
     matriz_cc = _init_matriz(membros)
     matriz_cartao = _init_matriz(membros)
 
-    # ---------------- Conta Corrente (apenas visíveis) ----------------
+    # -------- Conta Corrente (ocultas=False) --------
     transacoes = (
         Transacao.objects
         .filter(**{f"{TRANSACAO_DATA_FIELD}__year": ano})
-        .filter(oculta=False)  # <<<<<<<<<<<<<<<<<<<<< aplica ocultação
+        .filter(oculta=False)
         .prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
     )
     for t in transacoes:
@@ -138,21 +136,19 @@ def resumo_anual(request):
             continue
         mes_idx = d.month - 1
         val = _valor_despesa_conta_corrente(getattr(t, "valor", Decimal("0")))
-        if val <= 0:
+        if val == 0:
             continue
         _distribui_por_membros(t, val, matriz_cc, mes_idx)
         _distribui_por_membros(t, val, matriz_geral, mes_idx)
 
-    # ---------------- Cartão (por fatura) ----------------
+    # -------- Cartão (por fatura; ocultas se existir) --------
     lancs = (
         Lancamento.objects
         .select_related("fatura")
         .filter(fatura__competencia__year=ano)
     )
-    # Só filtra se existir 'oculta' no modelo de cartão (fica compatível com hoje e com o futuro)
     if _has_field(Lancamento, "oculta"):
         lancs = lancs.filter(oculta=False)
-
     lancs = lancs.prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
 
     for l in lancs:
@@ -162,8 +158,9 @@ def resumo_anual(request):
         if comp.year != ano:
             continue
         mes_idx = comp.month - 1
+        # agora NET: positivo = gasto; negativo = estorno (subtrai)
         val = _valor_despesa_cartao(getattr(l, "valor", Decimal("0")))
-        if val <= 0:
+        if val == 0:
             continue
         _distribui_por_membros(l, val, matriz_cartao, mes_idx)
         _distribui_por_membros(l, val, matriz_geral, mes_idx)
