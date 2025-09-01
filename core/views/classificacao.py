@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any, Optional, Dict
 
 from django.core.paginator import Paginator
-from django.db.models import F, Value, DecimalField, Q
+from django.db.models import F, Value, DecimalField, Q, Case, When, ExpressionWrapper
 from django.db.models.functions import Coalesce
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.shortcuts import render
@@ -86,7 +86,7 @@ def _excluir_ocultas(qs, model):
 # QUERYSETS BASE
 # =========================
 def qs_transacoes(request):
-    """Transações sem categoria por padrão (fonte=cc)."""
+    """Transações (conta corrente) SEM categoria e APENAS despesas (valor < 0)."""
     qs = Transacao.objects.all()
 
     # Ignora transações marcadas como 'ocultas' (se o campo existir)
@@ -95,12 +95,20 @@ def qs_transacoes(request):
     # Apenas sem categoria
     qs = qs.filter(**{f"{TX_COL_CAT}__isnull": True})
 
+    # Apenas despesas: valor < 0
+    qs = qs.filter(**{f"{TX_COL_VAL}__lt": 0})
+
     # Busca por descrição (opcional)
     qs = _filtro_busca(qs, TX_COL_DESC, _get_param(request, "busca"))
 
-    # Valor para exibição
+    # Valor para exibição como positivo (−valor)
     qs = qs.annotate(
-        valor_despesa=Coalesce(F(TX_COL_VAL), Value(0, output_field=DecimalField())),
+        valor_despesa=Case(
+            When(**{f"{TX_COL_VAL}__lt": 0},
+                 then=ExpressionWrapper(-F(TX_COL_VAL), output_field=DecimalField())),
+            default=Value(Decimal("0.00")),
+            output_field=DecimalField(),
+        ),
     )
 
     # Ordene ANTES de paginar
@@ -108,7 +116,7 @@ def qs_transacoes(request):
 
 
 def qs_lancamentos(request):
-    """Lançamentos sem categoria por padrão (fonte=cartao)."""
+    """Lançamentos (cartão) SEM categoria. Mantém o sinal original (positivos = despesa)."""
     qs = Lancamento.objects.all()
 
     # Ignora lançamentos marcados como 'ocultos' (se o campo existir)
@@ -120,6 +128,7 @@ def qs_lancamentos(request):
     # Busca
     qs = _filtro_busca(qs, LC_COL_DESC, _get_param(request, "busca"))
 
+    # Para cartão, mostramos o valor como está (positivos somam, negativos são estorno/ajuste)
     qs = qs.annotate(
         valor_despesa=Coalesce(F(LC_COL_VAL), Value(0, output_field=DecimalField())),
     )
