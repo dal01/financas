@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional, Dict
 
 from django.core.paginator import Paginator
 from django.db.models import F, Value, DecimalField, Q
@@ -53,17 +53,56 @@ def _paginar(request, qs, per_page: int = 50):
     return p.get_page(page)
 
 
+def _oculta_filter_kwargs(model) -> Optional[Dict[str, Any]]:
+    """
+    Descobre automaticamente um possível campo booleano de 'ocultação'
+    no model e retorna kwargs para filtrar/excluir.
+    Nomes comuns suportados: ocultar, oculta, oculto, ignorada, ignorar, is_oculta, is_ignorada.
+    """
+    candidate_fields = [
+        "ocultar", "oculta", "oculto",
+        "ignorada", "ignorar",
+        "is_oculta", "is_ignorada",
+    ]
+    for fname in candidate_fields:
+        try:
+            model._meta.get_field(fname)
+            return {fname: True}
+        except Exception:
+            continue
+    return None
+
+
+def _excluir_ocultas(qs, model):
+    """
+    Aplica exclude em cima do campo de 'ocultação' se existir no model.
+    Caso não exista, retorna o queryset sem alteração.
+    """
+    kwargs = _oculta_filter_kwargs(model)
+    return qs.exclude(**kwargs) if kwargs else qs
+
+
 # =========================
 # QUERYSETS BASE
 # =========================
 def qs_transacoes(request):
     """Transações sem categoria por padrão (fonte=cc)."""
     qs = Transacao.objects.all()
+
+    # Ignora transações marcadas como 'ocultas' (se o campo existir)
+    qs = _excluir_ocultas(qs, Transacao)
+
+    # Apenas sem categoria
     qs = qs.filter(**{f"{TX_COL_CAT}__isnull": True})
+
+    # Busca por descrição (opcional)
     qs = _filtro_busca(qs, TX_COL_DESC, _get_param(request, "busca"))
+
+    # Valor para exibição
     qs = qs.annotate(
         valor_despesa=Coalesce(F(TX_COL_VAL), Value(0, output_field=DecimalField())),
     )
+
     # Ordene ANTES de paginar
     return qs.order_by(f"-{TX_COL_DATA}", "-id")
 
@@ -71,8 +110,16 @@ def qs_transacoes(request):
 def qs_lancamentos(request):
     """Lançamentos sem categoria por padrão (fonte=cartao)."""
     qs = Lancamento.objects.all()
+
+    # Ignora lançamentos marcados como 'ocultos' (se o campo existir)
+    qs = _excluir_ocultas(qs, Lancamento)
+
+    # Apenas sem categoria
     qs = qs.filter(**{f"{LC_COL_CAT}__isnull": True})
+
+    # Busca
     qs = _filtro_busca(qs, LC_COL_DESC, _get_param(request, "busca"))
+
     qs = qs.annotate(
         valor_despesa=Coalesce(F(LC_COL_VAL), Value(0, output_field=DecimalField())),
     )
