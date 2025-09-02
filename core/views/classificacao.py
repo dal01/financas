@@ -2,254 +2,315 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Iterable, Dict, List, Tuple, Optional
+from datetime import datetime
 
-from django.db import transaction
-from django.http import JsonResponse, HttpResponseBadRequest
-from django.shortcuts import render
-from django.views.decorators.http import require_http_methods, require_GET
+from django.core.paginator import Paginator
+from django.db.models import Q
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import render, get_object_or_404
+from django.views.decorators.http import require_http_methods
 
-# Ajuste os caminhos se seus apps tiverem nomes diferentes:
+from core.models import Categoria
 from conta_corrente.models import Transacao
 from cartao_credito.models import Lancamento
-from core.models import Categoria
 
 
-# Helper: marca cada item com .src = 'cc' | 'cartao' quando fonte == 'todas'
-def _anotar_src_em_grupos(grupos, fonte):
-    if fonte != "todas":
-        return grupos
+# =========================
+# Campos usados
+# =========================
+TX_COL_DATA = "data"
+TX_COL_DESC = "descricao"
+TX_COL_VAL  = "valor"
+TX_COL_CAT  = "categoria"
+
+LC_COL_DATA = "data"
+LC_COL_DESC = "descricao"
+LC_COL_VAL  = "valor"
+LC_COL_CAT  = "categoria"
+
+
+# =========================
+# Helpers
+# =========================
+def _has_field(model, field_name: str) -> bool:
     try:
-        from conta_corrente.models import Transacao as _Tx
-        from cartao_credito.models import Lancamento as _Lc
+        return any(f.name == field_name for f in model._meta.get_fields())
     except Exception:
-        return grupos
-    for macro in grupos or []:
-        for sub in macro.get("subs", []):
-            for item in sub.get("items", []):
-                if getattr(item, "src", None):
-                    continue
-                if isinstance(item, _Tx):
-                    setattr(item, "src", "cc")
-                elif isinstance(item, _Lc):
-                    setattr(item, "src", "cartao")
-                else:
-                    setattr(item, "src", "cc")
-    return grupos
+        return False
 
 
-# ============================================================
-# AJAX: carrega subcategorias (filhas) de uma Macro (categoria_pai)
-# ============================================================
-@require_GET
-def carregar_subcategorias_ajax(request):
-    """
-    GET: ?macro_id=<id>
-    Retorna [{"id":..., "nome":...}, ...] para popular o <select> de Subcategoria.
-    """
+def _apenas_visiveis_qs(qs):
+    if _has_field(qs.model, "oculta"):
+        qs = qs.exclude(oculta=True)
+    return qs
+
+
+def _parse_busca(queryset, busca: str, campos: Iterable[str]):
+    if not busca:
+        return queryset
+    termos = [t.strip() for t in busca.split() if t.strip()]
+    for t in termos:
+        cond = Q()
+        for campo in campos:
+            cond |= Q(**{f"{campo}__icontains": t})
+        queryset = queryset.filter(cond)
+    return queryset
+
+
+def _ordenar(qs, default: str = "-data"):
     try:
-        macro_id = int(request.GET.get("macro_id"))
-    except (TypeError, ValueError):
-        return JsonResponse({"items": []})
-
-    subs = (
-        Categoria.objects
-        .filter(categoria_pai_id=macro_id)
-        .order_by("nome")
-        .values("id", "nome")
-    )
-    return JsonResponse({"items": list(subs)})
-
-
-# ============================================================
-# Página: Classificação de Gastos
-# ============================================================
-@require_http_methods(["GET"])
-def classificacao_gastos(request):
-    """
-    Lista lançamentos agrupados Macro -> Sub, com filtros e totais.
-
-    Pressupostos de campos:
-      - Transacao (CC): data, descricao, valor, categoria(FK Categoria), oculta, oculta_manual
-      - Lancamento (Cartão): data, descricao, valor, categoria(FK Categoria), oculta, oculta_manual
-      - Categoria: nome, categoria_pai(FK self, null=True)
-    """
-    fonte = request.GET.get("fonte", "todas")          # 'todas' | 'cc' | 'cartao'
-    modo = request.GET.get("modo", "ano")              # 'ano' | 'mes'
-    ano = int(request.GET.get("ano", "2025"))
-    mes = int(request.GET.get("mes", "1"))
-    macro_id_sel = request.GET.get("macro_id")         # '', '0' (sem categoria) ou id de Macro
-    sub_id_sel = request.GET.get("sub_id") or ""       # '' ou id de Sub
-    busca = (request.GET.get("busca") or "").strip()
-
-    # ---------------- Filtros básicos ----------------
-    def filtro_periodo(qs, campo_data="data"):
-        qs = qs.filter(**{f"{campo_data}__year": ano})
-        if modo == "mes":
-            qs = qs.filter(**{f"{campo_data}__month": mes})
+        return qs.order_by(default)
+    except Exception:
         return qs
 
-    def filtro_busca(qs):
-        if busca:
-            qs = qs.filter(descricao__icontains=busca)
-        return qs
 
-    def filtro_visibilidade(qs):
-        # Oculta tudo que for marcado como oculto (automaticamente ou manualmente)
-        return qs.filter(oculta=False, oculta_manual=False)
+def _filtrar_periodo(qs, data_ini: Optional[str], data_fim: Optional[str], campo_data: str):
+    if data_ini:
+        try:
+            datetime.strptime(data_ini, "%Y-%m-%d")
+            qs = qs.filter(**{f"{campo_data}__date__gte": data_ini})
+        except Exception:
+            pass
+    if data_fim:
+        try:
+            datetime.strptime(data_fim, "%Y-%m-%d")
+            qs = qs.filter(**{f"{campo_data}__date__lte": data_fim})
+        except Exception:
+            pass
+    return qs
 
-    def filtro_categoria(qs):
-        """
-        - macro_id_sel == '0'  => sem categoria
-        - sub_id_sel != ''     => filtra pela sub diretamente
-        - macro_id_sel != ''   => filtra por categoria__categoria_pai_id = macro
-        """
-        if macro_id_sel == "0":
-            return qs.filter(categoria__isnull=True)
-        if sub_id_sel:
-            return qs.filter(categoria_id=sub_id_sel)
-        if macro_id_sel and macro_id_sel != "":
-            return qs.filter(categoria__categoria_pai_id=macro_id_sel)
-        return qs
 
-    # ---------------- Monta QuerySets ----------------
-    qs_cc = Transacao.objects.all()
-    qs_cartao = Lancamento.objects.all()
+# =========================
+# Normalização (gastos)
+# =========================
+def gasto_normalizado_transacao(v: Decimal) -> Decimal:
+    # CC: negativos = despesa (→ positivo), positivos = receita (→ 0)
+    v = Decimal(v or 0)
+    return -v if v < 0 else Decimal("0")
 
-    # visibilidade primeiro
-    qs_cc = filtro_visibilidade(qs_cc)
-    qs_cartao = filtro_visibilidade(qs_cartao)
 
-    qs_cc = filtro_periodo(qs_cc, campo_data="data")
-    qs_cartao = filtro_periodo(qs_cartao, campo_data="data")
+def gasto_normalizado_lancamento(v: Decimal) -> Decimal:
+    # Cartão: positivos = despesa; negativos = estorno (abate)
+    return Decimal(v or 0)
 
-    qs_cc = filtro_busca(qs_cc)
-    qs_cartao = filtro_busca(qs_cartao)
 
-    qs_cc = filtro_categoria(qs_cc)
-    qs_cartao = filtro_categoria(qs_cartao)
+# =========================
+# Agrupamento Macro → Sub → Itens
+# =========================
+def _group_por_categoria(
+    itens: Iterable,
+    fonte: str,
+    col_data: str,
+    col_desc: str,
+    col_val: str,
+    col_cat: str,
+) -> Tuple[List[Dict], Decimal]:
+    total_geral = Decimal("0")
+    macros: Dict[int, Dict] = {}  # macro_id -> {id,nome,total,subs:{sub_id:{...}}}
 
-    # Evita N+1 na árvore de categoria
-    items_cc = []
-    items_cartao = []
-    if fonte in ("todas", "cc"):
-        items_cc = list(qs_cc.select_related("categoria", "categoria__categoria_pai"))
-    if fonte in ("todas", "cartao"):
-        items_cartao = list(qs_cartao.select_related("categoria", "categoria__categoria_pai"))
+    for obj in itens:
+        valor = getattr(obj, col_val, Decimal("0")) or Decimal("0")
+        gasto = gasto_normalizado_transacao(valor) if fonte == "cc" else gasto_normalizado_lancamento(valor)
 
-    # ---------------- Agrupamento Macro -> Sub ----------------
-    def obter_macro_sub(item):
-        cat = getattr(item, "categoria", None)
+        cat: Optional[Categoria] = getattr(obj, col_cat, None)
         if cat is None:
-            return "Sem categoria", "Sem categoria", None, None
-        pai = getattr(cat, "categoria_pai", None)
-        if pai is None:
-            return (cat.nome or "Sem categoria"), "Sem categoria", cat, None
-        return (pai.nome or "Sem categoria", cat.nome or "Sem categoria", pai, cat)
+            macro_id, macro_nome = 0, "Sem categoria"
+            sub_id, sub_nome = 0, "Sem subcategoria"
+        else:
+            if cat.nivel == 1:
+                macro_id, macro_nome = cat.id, cat.nome
+                sub_id, sub_nome = 0, "Sem subcategoria"
+            else:
+                pai = cat.categoria_pai
+                macro_id, macro_nome = (pai.id, pai.nome) if pai else (0, "Sem categoria")
+                sub_id, sub_nome = cat.id, cat.nome
 
-    grupos_map: dict[str, dict] = {}
+        m = macros.setdefault(macro_id, {"id": macro_id, "nome": macro_nome, "total": Decimal("0"), "subs": {}})
+        s = m["subs"].setdefault(sub_id, {"id": sub_id, "nome": sub_nome, "total": Decimal("0"), "itens": []})
 
-    def add_item(item, origem: str):
-        macro_nome, sub_nome, _macro_obj, _sub_obj = obter_macro_sub(item)
-        valor = getattr(item, "valor", Decimal("0"))
-        soma = abs(Decimal(valor)) if origem == "cc" else Decimal(valor)
+        s["itens"].append(obj)
+        s["total"] += gasto
+        m["total"] += gasto
+        total_geral += gasto
 
-        if macro_nome not in grupos_map:
-            grupos_map[macro_nome] = {"total_macro": Decimal("0"), "subs_map": {}}
-        g = grupos_map[macro_nome]
-        g["total_macro"] += soma
+    out: List[Dict] = []
+    for m in macros.values():
+        subs_list = list(m["subs"].values())
+        subs_list.sort(key=lambda x: (x["total"], x["nome"]), reverse=True)
+        out.append({"id": m["id"], "nome": m["nome"], "total": m["total"], "subcats": subs_list})
+    out.sort(key=lambda x: (x["total"], x["nome"]), reverse=True)
+    return out, total_geral
 
-        if sub_nome not in g["subs_map"]:
-            g["subs_map"][sub_nome] = {"total_sub": Decimal("0"), "items": []}
-        s = g["subs_map"][sub_nome]
-        s["total_sub"] += soma
 
-        setattr(item, "src", origem)
-        s["items"].append(item)
+# =========================
+# VIEW
+# =========================
+@require_http_methods(["GET"])
+def classificacao(request: HttpRequest) -> HttpResponse:
+    """
+    Filtros: fonte, período (data_ini/data_fim), categoria_id (macro), subcategoria_id, busca, ordering.
+    Renderiza macro sempre visível; sub sempre visível com subtotal; collapse nos itens (Bootstrap).
+    """
+    fonte = (request.GET.get("fonte") or "cc").lower().strip()
+    busca = (request.GET.get("busca") or "").strip()
+    categoria_id = request.GET.get("categoria_id")
+    subcategoria_id = request.GET.get("subcategoria_id")
+    ordering = (request.GET.get("ordering") or "-data").strip()
+    data_ini = request.GET.get("data_ini")
+    data_fim = request.GET.get("data_fim")
 
-    for it in items_cc:
-        add_item(it, "cc")
-    for it in items_cartao:
-        add_item(it, "cartao")
+    categorias_macro = Categoria.objects.filter(nivel=1).order_by("nome")
 
-    def ordem(n):
-        return (n == "Sem categoria", (n or "").lower())
+    if fonte == "cc":
+        qs = Transacao.objects.all()
+        qs = _apenas_visiveis_qs(qs)
+        qs = _filtrar_periodo(qs, data_ini, data_fim, TX_COL_DATA)
 
-    grupos = []
-    for macro_nome in sorted(grupos_map.keys(), key=ordem):
-        macro_info = grupos_map[macro_nome]
-        subs_list = []
-        for sub_nome in sorted(macro_info["subs_map"].keys(), key=ordem):
-            s = macro_info["subs_map"][sub_nome]
-            subs_list.append({
-                "sub_nome": sub_nome,
-                "total_sub": s["total_sub"],
-                "items": s["items"],
-            })
-        grupos.append({
-            "macro_nome": macro_nome,
-            "total_macro": macro_info["total_macro"],
-            "subs": subs_list,
-        })
+        if categoria_id:
+            qs = qs.filter(
+                Q(**{f"{TX_COL_CAT}_id": categoria_id}) |
+                Q(**{f"{TX_COL_CAT}__categoria_pai_id": categoria_id})
+            )
+        if subcategoria_id:
+            qs = qs.filter(**{f"{TX_COL_CAT}_id": subcategoria_id})
 
-    # Anota origem (garantia) e prepara contexto
-    grupos = _anotar_src_em_grupos(grupos, fonte)
+        qs = _parse_busca(qs, busca, campos=[TX_COL_DESC])
+        qs = _ordenar(qs, default=ordering)
 
-    anos_disponiveis = [ano - 1, ano, ano + 1]
-    meses = [(i, f"{i:02d}") for i in range(1, 13)]
-    periodo_label = f"{'Ano' if modo=='ano' else 'Mês'} de {ano}" + ("" if modo == "ano" else f" / {mes:02d}")
-    macros = Categoria.objects.filter(categoria_pai__isnull=True).order_by("nome")
+        categorias_group, total_geral = _group_por_categoria(qs, "cc", TX_COL_DATA, TX_COL_DESC, TX_COL_VAL, TX_COL_CAT)
+
+        ctx = {
+            "fonte": "cc",
+            "busca": busca,
+            "categoria_id": categoria_id,
+            "subcategoria_id": subcategoria_id,
+            "categorias_macro": categorias_macro,
+            "data_ini": data_ini or "",
+            "data_fim": data_fim or "",
+            "ordering": ordering,
+            "categorias_group": categorias_group,
+            "total_geral": total_geral,
+            "col_data": TX_COL_DATA,
+            "col_desc": TX_COL_DESC,
+            "col_val": TX_COL_VAL,
+            "col_cat": TX_COL_CAT,
+        }
+        return render(request, "classificacao/gastos.html", ctx)
+
+    # fonte == 'cartao'
+    qs = Lancamento.objects.all()
+    qs = _apenas_visiveis_qs(qs)
+    qs = _filtrar_periodo(qs, data_ini, data_fim, LC_COL_DATA)
+
+    if categoria_id:
+        qs = qs.filter(
+            Q(**{f"{LC_COL_CAT}_id": categoria_id}) |
+            Q(**{f"{LC_COL_CAT}__categoria_pai_id": categoria_id})
+        )
+    if subcategoria_id:
+        qs = qs.filter(**{f"{LC_COL_CAT}_id": subcategoria_id})
+
+    qs = _parse_busca(qs, busca, campos=[LC_COL_DESC])
+    qs = _ordenar(qs, default=ordering)
+
+    categorias_group, total_geral = _group_por_categoria(qs, "cartao", LC_COL_DATA, LC_COL_DESC, LC_COL_VAL, LC_COL_CAT)
 
     ctx = {
-        "title": "Classificação de Gastos",
-        "fonte": fonte,
-        "modo": modo,
-        "ano": ano,
-        "mes": mes,
-        "macro_id_sel": 0 if macro_id_sel == "0" else macro_id_sel,
-        "sub_id_sel": sub_id_sel,
+        "fonte": "cartao",
         "busca": busca,
-        "periodo_label": periodo_label,
-        "anos_disponiveis": anos_disponiveis,
-        "meses": meses,
-        "macros": macros,
-        "grupos": grupos,
+        "categoria_id": categoria_id,
+        "subcategoria_id": subcategoria_id,
+        "categorias_macro": categorias_macro,
+        "data_ini": data_ini or "",
+        "data_fim": data_fim or "",
+        "ordering": ordering,
+        "categorias_group": categorias_group,
+        "total_geral": total_geral,
+        "col_data": LC_COL_DATA,
+        "col_desc": LC_COL_DESC,
+        "col_val": LC_COL_VAL,
+        "col_cat": LC_COL_CAT,
     }
     return render(request, "classificacao/gastos.html", ctx)
 
 
-# ============================================================
-# AJAX: Atribuir categoria (robusto, sem colisão)
-# ============================================================
+# =========================
+# AJAX: atribuir categoria (1 ou muitos)
+# =========================
 @require_http_methods(["POST"])
-def atribuir_categoria_ajax(request):
-    """
-    Espera:
-      - ids_cc: '1,2,3'     (opcional)
-      - ids_cartao: '4,5,6' (opcional)
-      - categoria_id: '' para limpar, ou um ID válido
-    """
-    categoria_id = (request.POST.get("categoria_id") or "").strip()
-    ids_cc_raw = (request.POST.get("ids_cc") or "").strip()
-    ids_cartao_raw = (request.POST.get("ids_cartao") or "").strip()
+def atribuir_categoria_ajax(request: HttpRequest) -> JsonResponse:
+    fonte = (request.POST.get("fonte") or "").strip().lower()
+    item_id = request.POST.get("item_id")
+    item_ids_raw = request.POST.get("item_ids")
+    categoria_id = request.POST.get("categoria_id")
 
-    if not ids_cc_raw and not ids_cartao_raw:
-        return HttpResponseBadRequest("Nenhum ID informado (ids_cc/ids_cartao).")
+    if not fonte:
+        return JsonResponse({"ok": False, "erro": "Fonte ausente."}, status=400)
+    if not (item_id or item_ids_raw):
+        return JsonResponse({"ok": False, "erro": "Informe item_id ou item_ids."}, status=400)
 
-    categoria = None
-    if categoria_id:
+    ids: List[int] = []
+    if item_ids_raw:
         try:
-            categoria = Categoria.objects.get(pk=categoria_id)
-        except Categoria.DoesNotExist:
-            return HttpResponseBadRequest("Categoria inválida.")
+            ids = [int(x) for x in item_ids_raw.split(",") if x.strip()]
+        except Exception:
+            return JsonResponse({"ok": False, "erro": "item_ids inválido."}, status=400)
+    elif item_id:
+        try:
+            ids = [int(item_id)]
+        except Exception:
+            return JsonResponse({"ok": False, "erro": "item_id inválido."}, status=400)
 
+    # categoria pode ser vazia/0 → remover
+    cat_obj = None
+    if categoria_id not in (None, "", "0", 0):
+        try:
+            cat_obj = get_object_or_404(Categoria, pk=int(categoria_id))
+        except Exception:
+            return JsonResponse({"ok": False, "erro": "categoria_id inválido."}, status=400)
+
+    atualizado = 0
+    if fonte == "cc":
+        for pk in ids:
+            obj = get_object_or_404(Transacao, pk=pk)
+            if _has_field(Transacao, "oculta") and getattr(obj, "oculta", False):
+                continue
+            setattr(obj, TX_COL_CAT, cat_obj)
+            obj.save(update_fields=[TX_COL_CAT])
+            atualizado += 1
+        return JsonResponse({"ok": True, "fonte": "cc", "atualizado": atualizado})
+
+    if fonte == "cartao":
+        for pk in ids:
+            obj = get_object_or_404(Lancamento, pk=pk)
+            if _has_field(Lancamento, "oculta") and getattr(obj, "oculta", False):
+                continue
+            setattr(obj, LC_COL_CAT, cat_obj)
+            obj.save(update_fields=[LC_COL_CAT])
+            atualizado += 1
+        return JsonResponse({"ok": True, "fonte": "cartao", "atualizado": atualizado})
+
+    return JsonResponse({"ok": False, "erro": "Fonte inválida."}, status=400)
+
+
+# =========================
+# AJAX: subcategorias de uma macro (categoria_pai)
+# =========================
+@require_http_methods(["GET"])
+def carregar_subcategorias_ajax(request: HttpRequest) -> JsonResponse:
+    macro_id = request.GET.get("macro_id")
+    if not macro_id:
+        return JsonResponse({"ok": False, "erro": "macro_id é obrigatório."}, status=400)
     try:
-        ids_cc = [int(x) for x in ids_cc_raw.split(",") if x] if ids_cc_raw else []
-        ids_lc = [int(x) for x in ids_cartao_raw.split(",") if x] if ids_cartao_raw else []
-    except ValueError:
-        return HttpResponseBadRequest("IDs inválidos.")
+        macro_id_int = int(macro_id)
+    except Exception:
+        return JsonResponse({"ok": False, "erro": "macro_id inválido."}, status=400)
 
-    with transaction.atomic():
-        updated_cc = Transacao.objects.filter(id__in=ids_cc).update(categoria=categoria) if ids_cc else 0
-        updated_lc = Lancamento.objects.filter(id__in=ids_lc).update(categoria=categoria) if ids_lc else 0
+    qs = Categoria.objects.filter(nivel=2, categoria_pai_id=macro_id_int).order_by("nome")
+    itens = [{"id": c.id, "nome": c.nome} for c in qs]
+    return JsonResponse({"ok": True, "itens": itens})
 
-    return JsonResponse({"ok": True, "cc": updated_cc, "cartao": updated_lc})
+
+# Alias para o urls.py existente
+classificacao_gastos = classificacao

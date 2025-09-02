@@ -2,360 +2,289 @@
 {% extends "base.html" %}
 {% load static %}
 {% load formatadores %}
-
-{% block title %}Classificação de Gastos{% endblock %}
+{% load utils_extras %}
 
 {% block content %}
 <div class="container py-4">
 
-  <div class="d-flex align-items-center justify-content-between mb-3 gap-2 flex-wrap">
-    <h1 class="h5 mb-0">{{ title }}</h1>
+  <!-- Filtros -->
+  <form class="row g-2 align-items-end mb-3" method="get">
+    <div class="col-auto">
+      <label class="form-label small">Fonte</label>
+      <select name="fonte" class="form-select">
+        <option value="cc" {% if fonte == 'cc' %}selected{% endif %}>Conta Corrente</option>
+        <option value="cartao" {% if fonte == 'cartao' %}selected{% endif %}>Cartão de Crédito</option>
+      </select>
+    </div>
 
-    <form method="get" class="row g-2 align-items-end">
-      <div class="col-auto">
-        <label class="form-label mb-1">Fonte</label>
-        <select class="form-select" name="fonte">
-          <option value="todas" {% if fonte == 'todas' %}selected{% endif %}>Todas</option>
-          <option value="cc" {% if fonte == 'cc' %}selected{% endif %}>Conta Corrente</option>
-          <option value="cartao" {% if fonte == 'cartao' %}selected{% endif %}>Cartão</option>
-        </select>
-      </div>
+    <div class="col-auto">
+      <label class="form-label small">Período (de)</label>
+      <input type="date" class="form-control" name="data_ini" value="{{ data_ini }}">
+    </div>
+    <div class="col-auto">
+      <label class="form-label small">Período (até)</label>
+      <input type="date" class="form-control" name="data_fim" value="{{ data_fim }}">
+    </div>
 
-      <div class="col-auto">
-        <label class="form-label mb-1">Modo</label>
-        <select class="form-select" name="modo" id="sel-modo">
-          <option value="ano" {% if modo == 'ano' %}selected{% endif %}>Ano</option>
-          <option value="mes" {% if modo == 'mes' %}selected{% endif %}>Mês</option>
-        </select>
-      </div>
+    <div class="col-auto">
+      <label class="form-label small">Categoria (macro)</label>
+      <select name="categoria_id" class="form-select" id="filtro-categoria">
+        <option value="">Todas</option>
+        {% for c in categorias_macro %}
+          <option value="{{ c.id }}" {% if c.id|stringformat:"s" == categoria_id %}selected{% endif %}>{{ c.nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
 
-      <div class="col-auto">
-        <label class="form-label mb-1">Ano</label>
-        <select class="form-select" name="ano">
-          {% for a in anos_disponiveis %}
-            <option value="{{ a }}" {% if a == ano %}selected{% endif %}>{{ a }}</option>
-          {% endfor %}
-        </select>
-      </div>
+    <div class="col-auto">
+      <label class="form-label small">Subcategoria</label>
+      <select name="subcategoria_id" class="form-select" id="filtro-subcategoria" disabled>
+        <option value="">Todas</option>
+      </select>
+    </div>
 
-      <div class="col-auto" id="box-mes">
-        <label class="form-label mb-1">Mês</label>
-        <select class="form-select" name="mes">
-          {% for midx, mlabel in meses %}
-            <option value="{{ midx }}" {% if mes == midx %}selected{% endif %}>{{ mlabel }}</option>
-          {% endfor %}
-        </select>
-      </div>
+    <div class="col-auto">
+      <label class="form-label small">Busca</label>
+      <input type="search" class="form-control" name="busca" value="{{ busca }}" placeholder="Descrição">
+    </div>
 
-      <div class="col-auto">
-        <label class="form-label mb-1">Categoria (Macro)</label>
-        <select class="form-select" name="macro_id" id="filtro-macro">
-          <option value="">– todas –</option>
-          <option value="0" {% if macro_id_sel == 0 %}selected{% endif %}>Sem categoria</option>
-          {% for m in macros %}
-            <option value="{{ m.id }}" {% if macro_id_sel == m.id %}selected{% endif %}>{{ m.nome }}</option>
-          {% endfor %}
-        </select>
-      </div>
+    <div class="col-auto">
+      <label class="form-label small d-block invisible">_</label>
+      <button class="btn btn-primary">Aplicar</button>
+    </div>
+  </form>
 
-      <div class="col-auto">
-        <label class="form-label mb-1">Subcategoria</label>
-        <select class="form-select" name="sub_id" id="filtro-sub" {% if not macro_id_sel %}disabled{% endif %}>
-          <option value="">– todas –</option>
-        </select>
-      </div>
+  <!-- Toolbar -->
+  <div class="d-flex align-items-center gap-2 mb-3">
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" id="chk-select-all">
+      <label for="chk-select-all" class="form-check-label">Selecionar todos</label>
+    </div>
 
-      <div class="col-auto">
-        <label class="form-label mb-1">Busca</label>
-        <input type="search" class="form-control" name="busca" placeholder="Descrição…" value="{{ busca }}">
-      </div>
+    <div class="vr mx-2"></div>
 
-      <div class="col-auto">
-        <button class="btn btn-outline-secondary">Filtrar</button>
-      </div>
-    </form>
+    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#modalAtribuirCategoria">
+      Atribuir categoria
+    </button>
+    <button id="btn-remover-categoria" class="btn btn-outline-danger btn-sm">
+      Remover categoria
+    </button>
+
+    <div class="ms-auto badge text-bg-secondary p-2">
+      Total geral (gastos normalizados): <strong>{{ total_geral|moeda_brasileira }}</strong>
+    </div>
   </div>
 
-  <div class="mb-2 d-flex align-items-center gap-3 flex-wrap">
-    <span class="badge text-bg-primary">Período: {{ periodo_label }}</span>
-    <button id="btn-atribuir" class="btn btn-primary btn-sm" disabled>Atribuir categoria</button>
-    <span id="sel-count" class="text-muted small">0 selecionadas</span>
-  </div>
-
-  {# Agrupado por Macro -> Sub (accordion por sub) #}
-  {% for macro in grupos %}
-    <div class="card mb-3">
-      <div class="card-header py-2 d-flex justify-content-between align-items-center">
-        <strong>{{ macro.macro_nome }}</strong>
-        <span class="fw-semibold text-end">{{ macro.total_macro|moeda_brasileira }}</span>
+  <!-- Lista: todas as tabelas abertas -->
+  {% for cat in categorias_group %}
+    <div class="card mb-3 shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>{{ cat.nome }}</strong>
+        <span class="badge text-bg-primary">Total: {{ cat.total|moeda_brasileira }}</span>
       </div>
 
-      <div class="card-body p-2">
-        <div class="accordion" id="acc_{{ forloop.counter0 }}">
-          {% for sub in macro.subs %}
-            <div class="accordion-item">
-              <h2 class="accordion-header" id="hdr_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}">
-                <button class="accordion-button collapsed py-2"
-                        type="button"
-                        data-bs-toggle="collapse"
-                        data-bs-target="#col_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}"
-                        aria-expanded="false"
-                        aria-controls="col_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}">
-                  <span class="me-2">{{ sub.sub_nome }}</span>
-                  <span class="ms-auto text-end small text-muted d-inline-block" style="min-width: 160px;">
-                    {{ sub.total_sub|moeda_brasileira }}
-                  </span>
-                </button>
-              </h2>
-              <div id="col_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}"
-                   class="accordion-collapse collapse"
-                   aria-labelledby="hdr_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}"
-                   data-bs-parent="#acc_{{ forloop.parentloop.counter0 }}">
-                <div class="accordion-body p-0">
-                  <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                      <thead>
-                        <tr>
-                          <th style="width:28px"></th>
-                          <th style="width:120px">Data</th>
-                          <th>Descrição</th>
-                          <th class="text-end" style="width:160px">Valor</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {% for obj in sub.items %}
-                          <tr>
-                            <td>
-                              <input type="checkbox"
-                                     class="row-check"
-                                     data-origin="{{ obj.src|default:fonte }}"
-                                     value="{{ obj.id }}">
-                            </td>
-                            <td>{{ obj.data|date:"d/m/Y" }}</td>
-                            <td>{{ obj.descricao }}</td>
-                            <td class="text-end">
-                              {% if fonte == 'cc' %}
-                                {{ obj.valor|absval|moeda_brasileira }}
-                              {% else %}
-                                {{ obj.valor|moeda_brasileira }}
-                              {% endif %}
-                            </td>
-                          </tr>
-                        {% empty %}
-                          <tr><td colspan="4" class="text-center text-muted py-3">Sem lançamentos</td></tr>
-                        {% endfor %}
-                      </tbody>
-                      <tfoot>
-                        <tr>
-                          <th colspan="3" class="text-end">Total da subcategoria</th>
-                          <td class="text-end fw-semibold">{{ sub.total_sub|moeda_brasileira }}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-              </div>
+      <div class="list-group list-group-flush">
+        {% for sub in cat.subcats %}
+          <div class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0">{{ sub.nome }}</h6>
+              <span class="badge text-bg-info">Subtotal: {{ sub.total|moeda_brasileira }}</span>
             </div>
-          {% endfor %}
-        </div>
+
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width:36px;"></th>
+                    <th style="width:110px;">Data</th>
+                    <th>Descrição</th>
+                    <th class="text-end" style="width:160px;">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for it in sub.itens %}
+                    <tr>
+                      <td>
+                        <input type="checkbox" class="chk-item" value="{{ it.id }}">
+                      </td>
+                      <td>{{ it|get_attr:col_data|date:"d/m/Y" }}</td>
+                      <td>{{ it|get_attr:col_desc }}</td>
+                      <td class="text-end">{{ it|get_attr:col_val|moeda_brasileira }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="4" class="text-center text-muted py-3">Sem lançamentos.</td></tr>
+                  {% endfor %}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th colspan="3" class="text-end">Total da subcategoria:</th>
+                    <th class="text-end">{{ sub.total|moeda_brasileira }}</th>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        {% empty %}
+          <div class="list-group-item text-muted">Sem subcategorias.</div>
+        {% endfor %}
       </div>
     </div>
   {% empty %}
-    <div class="text-center text-muted py-4">Nenhum lançamento no período/filtros.</div>
+    <div class="text-muted">Nenhuma categoria encontrada no filtro atual.</div>
   {% endfor %}
 
 </div>
 
-{# Modal de Categoria #}
-<div class="modal fade" id="modalCategoria" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-sm modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header py-2">
+<!-- MODAL: Atribuir Categoria/Subcategoria -->
+<div class="modal fade" id="modalAtribuirCategoria" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content rounded-3">
+      <div class="modal-header">
         <h5 class="modal-title">Atribuir categoria</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
       </div>
       <div class="modal-body">
-
-        <div class="mb-2">
-          <label class="form-label mb-1">Macro</label>
-          <select id="sel-macro" class="form-select form-select-sm">
-            <option value="">– selecione –</option>
-            <option value="0">Sem categoria</option>
-            {% for m in macros %}
-              <option value="{{ m.id }}">{{ m.nome }}</option>
+        <div class="mb-3">
+          <label class="form-label">Categoria (macro)</label>
+          <select id="modal-categoria" class="form-select">
+            <option value="">Selecione...</option>
+            {% for c in categorias_macro %}
+              <option value="{{ c.id }}">{{ c.nome }}</option>
             {% endfor %}
           </select>
         </div>
-
         <div>
-          <label class="form-label mb-1">Subcategoria</label>
-          <select id="sel-sub" class="form-select form-select-sm" disabled>
-            <option value="">– selecione a macro –</option>
+          <label class="form-label">Subcategoria <span class="text-muted">(opcional)</span></label>
+          <select id="modal-subcategoria" class="form-select" disabled>
+            <option value="">Selecione a categoria primeiro</option>
           </select>
+          <div class="form-text">Se não houver subcategorias, será atribuída a categoria selecionada.</div>
         </div>
-
       </div>
-      <div class="modal-footer py-2">
-        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-        <button class="btn btn-primary btn-sm" id="btn-confirmar" disabled>Aplicar</button>
+      <div class="modal-footer">
+        <button id="modal-btn-aplicar" type="button" class="btn btn-success">Aplicar</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
       </div>
     </div>
   </div>
 </div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
-// ==== CSRF ====
-function getCookie(name) {
-  const cookieStr = document.cookie;
-  if (!cookieStr) return null;
-  const cookies = cookieStr.split(';');
-  for (let c of cookies) {
-    c = c.trim();
-    if (c.startsWith(name + '=')) return decodeURIComponent(c.substring(name.length + 1));
-  }
-  return null;
-}
-const CSRF_TOKEN = getCookie('csrftoken');
-
 (function(){
-  const btnAtribuir = document.getElementById('btn-atribuir');
-  const selCount = document.getElementById('sel-count');
+  const fonte = "{{ fonte }}";
 
-  // Toggle mês
-  const selModo = document.getElementById('sel-modo');
-  const boxMes = document.getElementById('box-mes');
-  function toggleMes(){ boxMes.style.display = selModo.value === 'mes' ? '' : 'none'; }
-  toggleMes();
-  selModo.addEventListener('change', toggleMes);
-
-  const allRowChecks = () => Array.from(document.querySelectorAll('.row-check'));
-
-  function updateSelection() {
-    const selected = allRowChecks().filter(c => c.checked).length;
-    selCount.textContent = `${selected} selecionadas`;
-    btnAtribuir.disabled = selected === 0;
+  // CSRF via cookie
+  function getCookie(name) {
+    const m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return m ? decodeURIComponent(m[2]) : null;
   }
-  allRowChecks().forEach(c => c.addEventListener('change', updateSelection));
+  const csrftoken = getCookie('csrftoken');
 
-  // Modal
-  const selMacro = document.getElementById('sel-macro');
-  const selSub = document.getElementById('sel-sub');
-  const btnConfirmar = document.getElementById('btn-confirmar');
-  const modalEl = document.getElementById('modalCategoria');
-  const modal = new bootstrap.Modal(modalEl);
-
-  btnAtribuir.addEventListener('click', () => {
-    selMacro.value = '';
-    selSub.innerHTML = '<option value="">– selecione a macro –</option>';
-    selSub.disabled = true;
-    btnConfirmar.disabled = true;
-    modal.show();
+  // Select all
+  const chkAll = document.getElementById('chk-select-all');
+  chkAll?.addEventListener('change', () => {
+    document.querySelectorAll('.chk-item').forEach(ch => { ch.checked = chkAll.checked; });
   });
 
-  selMacro.addEventListener('change', async () => {
-    const macroId = selMacro.value;
-    selSub.disabled = true;
-    btnConfirmar.disabled = true;
+  function selecionados() {
+    const ids = [];
+    document.querySelectorAll('.chk-item:checked').forEach(ch => ids.push(ch.value));
+    return ids;
+  }
 
-    if (macroId === '') {
-      selSub.innerHTML = '<option value="">– selecione a macro –</option>';
-      return;
-    }
-    if (macroId === '0') {
-      selSub.innerHTML = '<option value="">– sem sub –</option>';
-      selSub.disabled = true;
-      btnConfirmar.disabled = false;
-      return;
-    }
-
-    const url = "{% url 'carregar_subcategorias_ajax' %}" + `?macro_id=${macroId}`;
-    const resp = await fetch(url, { credentials: 'same-origin' });
-    const data = await resp.json();
-    selSub.innerHTML = '<option value="">– selecione –</option>';
-    for (const item of data.items) {
-      const opt = document.createElement('option');
-      opt.value = item.id;
-      opt.textContent = item.nome;
-      selSub.appendChild(opt);
-    }
-    selSub.disabled = false;
-  });
-
-  selSub.addEventListener('change', () => {
-    btnConfirmar.disabled = !(selSub.value || selMacro.value === '0');
-  });
-
-  // Submit: separa ids por origem
-  document.getElementById('btn-confirmar').addEventListener('click', async () => {
-    const marcados = allRowChecks().filter(c => c.checked);
-    if (!marcados.length) return;
-
-    const idsCC = [];
-    const idsCartao = [];
-
-    for (const c of marcados) {
-      const origin = (c.dataset.origin || '').toLowerCase();
-      if (origin === 'cc') idsCC.push(c.value);
-      else if (origin === 'cartao') idsCartao.push(c.value);
-      else { alert('Não foi possível identificar a origem de um lançamento selecionado.'); return; }
-    }
+  async function postAtribuir(categoriaId) {
+    const ids = selecionados();
+    if (!ids.length) { alert('Selecione ao menos um lançamento.'); return; }
 
     const form = new FormData();
-    if (idsCC.length)     form.append('ids_cc', idsCC.join(','));
-    if (idsCartao.length) form.append('ids_cartao', idsCartao.join(','));
+    form.append('fonte', fonte);
+    form.append('item_ids', ids.join(','));
+    form.append('categoria_id', categoriaId || '0');
 
-    if (selMacro.value === '0') {
-      form.append('categoria_id', '');
-    } else {
-      form.append('categoria_id', selSub.value || selMacro.value);
-    }
-
-    const url = "{% url 'atribuir_categoria_ajax' %}";
-    const resp = await fetch(url, {
+    const resp = await fetch("{% url 'atribuir_categoria_ajax' %}", {
       method: 'POST',
-      body: form,
-      headers: { 'X-CSRFToken': CSRF_TOKEN },
-      credentials: 'same-origin',
+      headers: {'X-CSRFToken': csrftoken},
+      body: form
     });
+    const data = await resp.json();
+    if (!data.ok) {
+      alert('Erro: ' + (data.erro || 'desconhecido'));
+      return;
+    }
+    location.reload();
+  }
 
-    if (resp.ok) {
-      const p = new URLSearchParams(window.location.search);
-      window.location.search = p.toString();
-    } else {
-      const txt = await resp.text();
-      alert('Falha ao aplicar categoria.\n' + txt.slice(0, 500));
+  // Remover categoria
+  document.getElementById('btn-remover-categoria')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    postAtribuir('0');
+  });
+
+  // Filtro: carregar subcategorias quando categoria (macro) muda
+  const selCatFiltro = document.getElementById('filtro-categoria');
+  const selSubFiltro = document.getElementById('filtro-subcategoria');
+
+  async function carregarSubcats(selectDestino, macroId, opts={placeholder:'Todas', selected:null}) {
+    selectDestino.innerHTML = `<option value="">${opts.placeholder || 'Todas'}</option>`;
+    selectDestino.disabled = true;
+    if (!macroId) return;
+
+    try {
+      const url = new URL("{% url 'carregar_subcategorias_ajax' %}", window.location.origin);
+      url.searchParams.set('macro_id', macroId);
+      const r = await fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+      const j = await r.json();
+      if (j.ok && Array.isArray(j.itens) && j.itens.length) {
+        j.itens.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = s.nome;
+          if (opts.selected && String(opts.selected) === String(s.id)) opt.selected = true;
+          selectDestino.appendChild(opt);
+        });
+        selectDestino.disabled = false;
+      } else {
+        selectDestino.innerHTML = '<option value="">(Sem subcategorias)</option>';
+        selectDestino.disabled = false;
+      }
+    } catch(e) {
+      selectDestino.innerHTML = '<option value="">(Erro ao carregar)</option>';
+      selectDestino.disabled = false;
+    }
+  }
+
+  selCatFiltro?.addEventListener('change', () => carregarSubcats(selSubFiltro, selCatFiltro.value, {selected: "{{ subcategoria_id }}"}));
+  if (selCatFiltro && selCatFiltro.value) {
+    carregarSubcats(selSubFiltro, selCatFiltro.value, {selected: "{{ subcategoria_id }}"});
+  }
+
+  // MODAL: carregar subcats quando macro muda
+  const modalCategoria = document.getElementById('modal-categoria');
+  const modalSubcategoria = document.getElementById('modal-subcategoria');
+  modalCategoria?.addEventListener('change', async () => {
+    const macroId = modalCategoria.value;
+    if (!macroId) {
+      modalSubcategoria.innerHTML = '<option value="">Selecione a categoria primeiro</option>';
+      modalSubcategoria.disabled = true;
+      return;
+    }
+    modalSubcategoria.disabled = false;
+    await carregarSubcats(modalSubcategoria, macroId, {placeholder:'Selecione...', selected:null});
+    if (modalSubcategoria.options.length <= 1) {
+      modalSubcategoria.innerHTML = '<option value="">(Sem subcategorias)</option>';
     }
   });
 
-  // Preenche filtro de Sub ao carregar (se já houver Macro)
-  (async function hydrateFiltroSub(){
-    const macroId = "{{ macro_id_sel|default:'' }}";
-    const subId = "{{ sub_id_sel|default:'' }}";
-    const subSel = document.getElementById('filtro-sub');
-
-    if (!macroId) return;
-
-    if (macroId === '0') {
-      subSel.innerHTML = '<option value="">– todas –</option>';
-      subSel.disabled = true;
-      return;
-    }
-    const url = "{% url 'carregar_subcategorias_ajax' %}" + `?macro_id=${macroId}`;
-    const resp = await fetch(url, { credentials: 'same-origin' });
-    const data = await resp.json();
-    subSel.innerHTML = '<option value="">– todas –</option>';
-    for (const item of data.items) {
-      const opt = document.createElement('option');
-      opt.value = item.id;
-      opt.textContent = item.nome;
-      if (subId && String(item.id) === String(subId)) opt.selected = true;
-      subSel.appendChild(opt);
-    }
-    subSel.disabled = false;
-  })();
-
+  // MODAL: aplicar (prioriza sub; se vazio, aplica macro)
+  document.getElementById('modal-btn-aplicar')?.addEventListener('click', () => {
+    const macroId = modalCategoria.value;
+    if (!macroId) { alert('Escolha a categoria.'); return; }
+    const subId = modalSubcategoria.disabled ? "" : modalSubcategoria.value;
+    postAtribuir(subId || macroId);
+  });
 })();
 </script>
 {% endblock %}
