@@ -30,6 +30,7 @@
       <label class="form-label small">Categoria (macro)</label>
       <select name="categoria_id" class="form-select" id="filtro-categoria">
         <option value="">Todas</option>
+        <option value="0" {% if categoria_id == '0' %}selected{% endif %}>(Sem categoria)</option>
         {% for c in categorias_macro %}
           <option value="{{ c.id }}" {% if c.id|stringformat:"s" == categoria_id %}selected{% endif %}>{{ c.nome }}</option>
         {% endfor %}
@@ -148,6 +149,7 @@
           <label class="form-label">Categoria (macro)</label>
           <select id="modal-categoria" class="form-select">
             <option value="">Selecione...</option>
+            {# Observação: aqui mantive sem a opção "0", pois você disse que não precisa atribuir "sem categoria" #}
             {% for c in categorias_macro %}
               <option value="{{ c.id }}">{{ c.nome }}</option>
             {% endfor %}
@@ -223,14 +225,24 @@
     postAtribuir('0');
   });
 
-  // Filtro: carregar subcategorias quando categoria (macro) muda
+  // ----- Filtro: carregar subcategorias quando categoria (macro) muda -----
   const selCatFiltro = document.getElementById('filtro-categoria');
   const selSubFiltro = document.getElementById('filtro-subcategoria');
 
   async function carregarSubcats(selectDestino, macroId, opts={placeholder:'Todas', selected:null}) {
+    // Reseta sempre
     selectDestino.innerHTML = `<option value="">${opts.placeholder || 'Todas'}</option>`;
     selectDestino.disabled = true;
-    if (!macroId) return;
+
+    // Caso especial: "Sem categoria" (0) ou vazio -> desabilita e não busca
+    if (!macroId || String(macroId) === '0') {
+      // Se for 0, não existem subcategorias
+      if (String(macroId) === '0') {
+        selectDestino.innerHTML = '<option value="">(Sem subcategorias)</option>';
+      }
+      selectDestino.disabled = true;
+      return;
+    }
 
     try {
       const url = new URL("{% url 'carregar_subcategorias_ajax' %}", window.location.origin);
@@ -248,22 +260,34 @@
         selectDestino.disabled = false;
       } else {
         selectDestino.innerHTML = '<option value="">(Sem subcategorias)</option>';
-        selectDestino.disabled = false;
+        selectDestino.disabled = true;
       }
     } catch(e) {
       selectDestino.innerHTML = '<option value="">(Erro ao carregar)</option>';
-      selectDestino.disabled = false;
+      selectDestino.disabled = true;
     }
   }
 
-  selCatFiltro?.addEventListener('change', () => carregarSubcats(selSubFiltro, selCatFiltro.value, {selected: "{{ subcategoria_id }}"}));
-  if (selCatFiltro && selCatFiltro.value) {
-    carregarSubcats(selSubFiltro, selCatFiltro.value, {selected: "{{ subcategoria_id }}"});
-  }
+  // Ao mudar a macro no filtro
+  selCatFiltro?.addEventListener('change', () => {
+    const val = selCatFiltro.value;
+    // sempre que macro muda, limpamos o valor atual da subcategoria
+    selSubFiltro.value = '';
+    carregarSubcats(selSubFiltro, val, {selected: ""});
+  });
 
-  // MODAL: carregar subcats quando macro muda
+  // Inicialização: se já veio uma macro selecionada pela URL, carrega as subcats
+  (function initFiltro(){
+    const macro = selCatFiltro ? selCatFiltro.value : "";
+    // "{{ subcategoria_id }}" vem da view; se vazio, não pré-seleciona nada
+    const subSel = "{{ subcategoria_id }}";
+    carregarSubcats(selSubFiltro, macro, {selected: subSel || ""});
+  })();
+
+  // ---------- MODAL ----------
   const modalCategoria = document.getElementById('modal-categoria');
   const modalSubcategoria = document.getElementById('modal-subcategoria');
+
   modalCategoria?.addEventListener('change', async () => {
     const macroId = modalCategoria.value;
     if (!macroId) {
@@ -275,10 +299,10 @@
     await carregarSubcats(modalSubcategoria, macroId, {placeholder:'Selecione...', selected:null});
     if (modalSubcategoria.options.length <= 1) {
       modalSubcategoria.innerHTML = '<option value="">(Sem subcategorias)</option>';
+      modalSubcategoria.disabled = true;
     }
   });
 
-  // MODAL: aplicar (prioriza sub; se vazio, aplica macro)
   document.getElementById('modal-btn-aplicar')?.addEventListener('click', () => {
     const macroId = modalCategoria.value;
     if (!macroId) { alert('Escolha a categoria.'); return; }

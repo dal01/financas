@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Iterable, Dict, List, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Q, DateTimeField
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.views.decorators.http import require_http_methods
@@ -40,6 +40,17 @@ def _has_field(model, field_name: str) -> bool:
         return False
 
 
+def _is_datetime_field(model, field_name: str) -> bool:
+    """
+    True se o campo for DateTimeField; False caso contrário (inclui DateField).
+    """
+    try:
+        f = model._meta.get_field(field_name)
+        return isinstance(f, DateTimeField)
+    except Exception:
+        return False
+
+
 def _apenas_visiveis_qs(qs):
     if _has_field(qs.model, "oculta"):
         qs = qs.exclude(oculta=True)
@@ -66,16 +77,24 @@ def _ordenar(qs, default: str = "-data"):
 
 
 def _filtrar_periodo(qs, data_ini: Optional[str], data_fim: Optional[str], campo_data: str):
+    """
+    Aceita strings 'YYYY-MM-DD' e aplica filtro correto:
+      - Se campo for DateTimeField -> usa __date__gte/__date__lte
+      - Se for DateField -> usa __gte/__lte direto
+    """
+    is_dt = _is_datetime_field(qs.model, campo_data)
+    prefix = f"{campo_data}__date" if is_dt else campo_data
+
     if data_ini:
         try:
             datetime.strptime(data_ini, "%Y-%m-%d")
-            qs = qs.filter(**{f"{campo_data}__date__gte": data_ini})
+            qs = qs.filter(**{f"{prefix}__gte": data_ini})
         except Exception:
             pass
     if data_fim:
         try:
             datetime.strptime(data_fim, "%Y-%m-%d")
-            qs = qs.filter(**{f"{campo_data}__date__lte": data_fim})
+            qs = qs.filter(**{f"{prefix}__lte": data_fim})
         except Exception:
             pass
     return qs
@@ -157,28 +176,44 @@ def classificacao(request: HttpRequest) -> HttpResponse:
     categoria_id = request.GET.get("categoria_id")
     subcategoria_id = request.GET.get("subcategoria_id")
     ordering = (request.GET.get("ordering") or "-data").strip()
-    data_ini = request.GET.get("data_ini")
-    data_fim = request.GET.get("data_fim")
+
+    # -----------------------
+    # Período padrão: de 1º jan até hoje
+    # -----------------------
+    hoje = date.today()
+    primeiro_dia_ano = date(hoje.year, 1, 1)
+    data_ini = (request.GET.get("data_ini") or primeiro_dia_ano.strftime("%Y-%m-%d")).strip()
+    data_fim = (request.GET.get("data_fim") or hoje.strftime("%Y-%m-%d")).strip()
 
     categorias_macro = Categoria.objects.filter(nivel=1).order_by("nome")
 
+    # ---------- Conta Corrente ----------
     if fonte == "cc":
         qs = Transacao.objects.all()
         qs = _apenas_visiveis_qs(qs)
         qs = _filtrar_periodo(qs, data_ini, data_fim, TX_COL_DATA)
 
-        if categoria_id:
-            qs = qs.filter(
-                Q(**{f"{TX_COL_CAT}_id": categoria_id}) |
-                Q(**{f"{TX_COL_CAT}__categoria_pai_id": categoria_id})
-            )
+        # Filtro por categoria (macro)
+        if categoria_id is not None and categoria_id != "":
+            if categoria_id == "0":
+                # "(Sem categoria)" -> categoria nula
+                qs = qs.filter(**{f"{TX_COL_CAT}__isnull": True})
+            else:
+                qs = qs.filter(
+                    Q(**{f"{TX_COL_CAT}_id": categoria_id}) |
+                    Q(**{f"{TX_COL_CAT}__categoria_pai_id": categoria_id})
+                )
+
+        # Filtro por subcategoria
         if subcategoria_id:
             qs = qs.filter(**{f"{TX_COL_CAT}_id": subcategoria_id})
 
         qs = _parse_busca(qs, busca, campos=[TX_COL_DESC])
         qs = _ordenar(qs, default=ordering)
 
-        categorias_group, total_geral = _group_por_categoria(qs, "cc", TX_COL_DATA, TX_COL_DESC, TX_COL_VAL, TX_COL_CAT)
+        categorias_group, total_geral = _group_por_categoria(
+            qs, "cc", TX_COL_DATA, TX_COL_DESC, TX_COL_VAL, TX_COL_CAT
+        )
 
         ctx = {
             "fonte": "cc",
@@ -186,8 +221,8 @@ def classificacao(request: HttpRequest) -> HttpResponse:
             "categoria_id": categoria_id,
             "subcategoria_id": subcategoria_id,
             "categorias_macro": categorias_macro,
-            "data_ini": data_ini or "",
-            "data_fim": data_fim or "",
+            "data_ini": data_ini,
+            "data_fim": data_fim,
             "ordering": ordering,
             "categorias_group": categorias_group,
             "total_geral": total_geral,
@@ -198,23 +233,29 @@ def classificacao(request: HttpRequest) -> HttpResponse:
         }
         return render(request, "classificacao/gastos.html", ctx)
 
-    # fonte == 'cartao'
+    # ---------- Cartão de Crédito ----------
     qs = Lancamento.objects.all()
     qs = _apenas_visiveis_qs(qs)
     qs = _filtrar_periodo(qs, data_ini, data_fim, LC_COL_DATA)
 
-    if categoria_id:
-        qs = qs.filter(
-            Q(**{f"{LC_COL_CAT}_id": categoria_id}) |
-            Q(**{f"{LC_COL_CAT}__categoria_pai_id": categoria_id})
-        )
+    if categoria_id is not None and categoria_id != "":
+        if categoria_id == "0":
+            qs = qs.filter(**{f"{LC_COL_CAT}__isnull": True})
+        else:
+            qs = qs.filter(
+                Q(**{f"{LC_COL_CAT}_id": categoria_id}) |
+                Q(**{f"{LC_COL_CAT}__categoria_pai_id": categoria_id})
+            )
+
     if subcategoria_id:
         qs = qs.filter(**{f"{LC_COL_CAT}_id": subcategoria_id})
 
     qs = _parse_busca(qs, busca, campos=[LC_COL_DESC])
     qs = _ordenar(qs, default=ordering)
 
-    categorias_group, total_geral = _group_por_categoria(qs, "cartao", LC_COL_DATA, LC_COL_DESC, LC_COL_VAL, LC_COL_CAT)
+    categorias_group, total_geral = _group_por_categoria(
+        qs, "cartao", LC_COL_DATA, LC_COL_DESC, LC_COL_VAL, LC_COL_CAT
+    )
 
     ctx = {
         "fonte": "cartao",
@@ -222,8 +263,8 @@ def classificacao(request: HttpRequest) -> HttpResponse:
         "categoria_id": categoria_id,
         "subcategoria_id": subcategoria_id,
         "categorias_macro": categorias_macro,
-        "data_ini": data_ini or "",
-        "data_fim": data_fim or "",
+        "data_ini": data_ini,
+        "data_fim": data_fim,
         "ordering": ordering,
         "categorias_group": categorias_group,
         "total_geral": total_geral,

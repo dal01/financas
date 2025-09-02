@@ -1,94 +1,82 @@
+{# templates/relatorios/gastos_categorias.html #}
 {% extends "base.html" %}
+{% load formatadores %}
 {% load static %}
-{% load formatadores %} {# garante o filtro moeda_brasileira #}
 
 {% block content %}
 <div class="container py-4">
+
   <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <h1 class="h4 mb-0">Gastos por Categoria</h1>
 
-    <form class="d-flex align-items-end gap-2" method="get">
-      <div>
-        <label class="form-label mb-1">Modo</label>
-        <select class="form-select form-select-sm" name="modo" onchange="this.form.submit()">
-          <option value="ano" {% if modo == 'ano' %}selected{% endif %}>Ano</option>
-          <option value="mes" {% if modo == 'mes' %}selected{% endif %}>Mês</option>
-        </select>
+    <!-- Filtro de período -->
+    <form class="row g-2 align-items-end" method="get">
+      <div class="col-auto">
+        <label class="form-label small">Período (de)</label>
+        <input type="date" class="form-control" name="data_ini" value="{{ data_ini }}">
       </div>
-
-      <div>
-        <label class="form-label mb-1">Ano</label>
-        <select class="form-select form-select-sm" name="ano" onchange="this.form.submit()">
-          {% for y in anos_disponiveis %}
-            <option value="{{ y }}" {% if y == ano %}selected{% endif %}>{{ y }}</option>
-          {% endfor %}
-        </select>
+      <div class="col-auto">
+        <label class="form-label small">Período (até)</label>
+        <input type="date" class="form-control" name="data_fim" value="{{ data_fim }}">
       </div>
-
-      <div {% if modo != 'mes' %}style="display:none"{% endif %}>
-        <label class="form-label mb-1">Mês</label>
-        <select class="form-select form-select-sm" name="mes" onchange="this.form.submit()">
-          {% for m, nome in meses %}
-            <option value="{{ m }}" {% if m == mes %}selected{% endif %}>{{ nome }}</option>
-          {% endfor %}
-        </select>
+      <div class="col-auto">
+        <label class="form-label small d-block invisible">_</label>
+        <button class="btn btn-primary">Aplicar</button>
       </div>
     </form>
   </div>
 
-  <!-- Badges de período -->
+  <!-- Total geral -->
   <div class="mb-3">
-    <span class="badge text-bg-primary">Período: {{ periodo_label }}</span>
-    <span class="badge text-bg-secondary">De {{ dt_ini }} até {{ dt_fim }}</span>
+    <span class="badge text-bg-secondary p-2">
+      Total geral (gastos normalizados): <strong>{{ total_geral|moeda_brasileira }}</strong>
+    </span>
   </div>
 
-  <!-- Cards de total -->
-  <div class="row g-3 mb-4">
-    <div class="col-12 col-md-4">
-      <div class="card shadow-sm">
-        <div class="card-body">
-          <div class="text-muted">Total de Gastos</div>
-          <div class="fs-4 fw-semibold">{{ total_geral|moeda_brasileira }}</div>
+  <!-- Lista por macro -->
+  {% if categorias %}
+    {% for macro in categorias %}
+      <div class="card mb-3 shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>{{ macro.nome }}</strong>
+          <span class="badge text-bg-primary">Total: {{ macro.total|moeda_brasileira }}</span>
         </div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Tabelas por Macro/Sub -->
-  {% for m in macros %}
-    <div class="mb-4">
-      <div class="d-flex align-items-center justify-content-between mb-2">
-        <h2 class="h6 mb-0">{{ m.macro_nome }}</h2>
-        <span class="badge text-bg-dark">{{ m.total_macro|moeda_brasileira }}</span>
+        {% if macro.subcats %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Subcategoria</th>
+                  <th class="text-end" style="width: 200px;">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for sub in macro.subcats %}
+                  <tr>
+                    <td>{{ sub.nome }}</td>
+                    <td class="text-end">{{ sub.total|moeda_brasileira }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th class="text-end">Total da categoria:</th>
+                  <th class="text-end">{{ macro.total|moeda_brasileira }}</th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        {% else %}
+          <div class="list-group list-group-flush">
+            <div class="list-group-item text-muted">Sem subcategorias.</div>
+          </div>
+        {% endif %}
       </div>
+    {% endfor %}
+  {% else %}
+    <div class="text-muted">Nenhum gasto encontrado no período.</div>
+  {% endif %}
 
-      <div class="table-responsive">
-        <table class="table table-sm align-middle">
-          <thead>
-            <tr>
-              <th style="width:60%">Subcategoria</th>
-              <th class="text-end" style="width:40%">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for s in m.subs %}
-              <tr>
-                <td>{{ s.sub_nome }}</td>
-                <td class="text-end">{{ s.total|moeda_brasileira }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-          <tfoot>
-            <tr class="fw-semibold">
-              <td>Total {{ m.macro_nome }}</td>
-              <td class="text-end">{{ m.total_macro|moeda_brasileira }}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
-  {% empty %}
-    <div class="alert alert-info">Nenhuma despesa encontrada para o período.</div>
-  {% endfor %}
 </div>
 {% endblock %}
