@@ -3,6 +3,7 @@
 import django.core.validators
 import django.db.models.deletion
 from django.db import migrations, models
+from django.db.models import Q
 
 
 class Migration(migrations.Migration):
@@ -50,7 +51,13 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='categoria',
-            constraint=models.CheckConstraint(condition=models.Q(models.Q(('categoria_pai__isnull', True), ('nivel', 1)), models.Q(('categoria_pai__isnull', False), ('nivel', 2)), _connector='OR'), name='chk_categoria_nivel_vs_pai'),
+            constraint=models.CheckConstraint(
+                check=(
+                    (Q(categoria_pai__isnull=True) & Q(nivel=1)) |
+                    (Q(categoria_pai__isnull=False) & Q(nivel=2))
+                ),
+                name='chk_categoria_nivel_vs_pai',
+            ),
         ),
         migrations.AddField(
             model_name='regracategoria',

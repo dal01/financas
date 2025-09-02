@@ -129,7 +129,6 @@
                               <input type="checkbox"
                                      class="row-check"
                                      data-origin="{{ obj.src|default:fonte }}"
-                                     data-subsync="k_{{ forloop.parentloop.parentloop.counter0 }}_{{ forloop.parentloop.counter0 }}"
                                      value="{{ obj.id }}">
                             </td>
                             <td>{{ obj.data|date:"d/m/Y" }}</td>
@@ -224,25 +223,14 @@ const CSRF_TOKEN = getCookie('csrftoken');
   const btnAtribuir = document.getElementById('btn-atribuir');
   const selCount = document.getElementById('sel-count');
 
-  // ===== Toggle de mês no filtro de período =====
+  // Toggle mês
   const selModo = document.getElementById('sel-modo');
   const boxMes = document.getElementById('box-mes');
   function toggleMes(){ boxMes.style.display = selModo.value === 'mes' ? '' : 'none'; }
   toggleMes();
   selModo.addEventListener('change', toggleMes);
 
-  // ===== Seleção por subgrupo =====
-  const subHeaders = document.querySelectorAll('.check-sub'); // se existir
   const allRowChecks = () => Array.from(document.querySelectorAll('.row-check'));
-
-  subHeaders.forEach(h => {
-    h.addEventListener('change', () => {
-      const key = h.dataset.subsync;
-      const rows = allRowChecks().filter(r => r.dataset.subsync === key);
-      rows.forEach(r => r.checked = h.checked);
-      updateSelection();
-    });
-  });
 
   function updateSelection() {
     const selected = allRowChecks().filter(c => c.checked).length;
@@ -251,7 +239,7 @@ const CSRF_TOKEN = getCookie('csrftoken');
   }
   allRowChecks().forEach(c => c.addEventListener('change', updateSelection));
 
-  // ===== Modal de Atribuição =====
+  // Modal
   const selMacro = document.getElementById('sel-macro');
   const selSub = document.getElementById('sel-sub');
   const btnConfirmar = document.getElementById('btn-confirmar');
@@ -276,7 +264,6 @@ const CSRF_TOKEN = getCookie('csrftoken');
       return;
     }
     if (macroId === '0') {
-      // “Sem categoria”
       selSub.innerHTML = '<option value="">– sem sub –</option>';
       selSub.disabled = true;
       btnConfirmar.disabled = false;
@@ -300,7 +287,7 @@ const CSRF_TOKEN = getCookie('csrftoken');
     btnConfirmar.disabled = !(selSub.value || selMacro.value === '0');
   });
 
-  // ===== Submit: separa ids por origem (sem colisão) =====
+  // Submit: separa ids por origem
   document.getElementById('btn-confirmar').addEventListener('click', async () => {
     const marcados = allRowChecks().filter(c => c.checked);
     if (!marcados.length) return;
@@ -312,11 +299,7 @@ const CSRF_TOKEN = getCookie('csrftoken');
       const origin = (c.dataset.origin || '').toLowerCase();
       if (origin === 'cc') idsCC.push(c.value);
       else if (origin === 'cartao') idsCartao.push(c.value);
-      else {
-        // fallback: se por algum motivo vier vazio, melhor abortar pra não arriscar
-        alert('Não foi possível identificar a origem de um lançamento selecionado.');
-        return;
-      }
+      else { alert('Não foi possível identificar a origem de um lançamento selecionado.'); return; }
     }
 
     const form = new FormData();
@@ -346,7 +329,7 @@ const CSRF_TOKEN = getCookie('csrftoken');
     }
   });
 
-  // ===== Preenche filtro de Sub ao carregar se já houver Macro =====
+  // Preenche filtro de Sub ao carregar (se já houver Macro)
   (async function hydrateFiltroSub(){
     const macroId = "{{ macro_id_sel|default:'' }}";
     const subId = "{{ sub_id_sel|default:'' }}";
