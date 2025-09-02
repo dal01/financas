@@ -102,9 +102,7 @@
                         aria-expanded="false"
                         aria-controls="col_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}">
                   <span class="me-2">{{ sub.sub_nome }}</span>
-                  {# FIX: bloco do total com largura mínima e alinhado à direita #}
-                  <span class="ms-auto text-end small text-muted d-inline-block"
-                        style="min-width: 160px;">
+                  <span class="ms-auto text-end small text-muted d-inline-block" style="min-width: 160px;">
                     {{ sub.total_sub|moeda_brasileira }}
                   </span>
                 </button>
@@ -130,6 +128,7 @@
                             <td>
                               <input type="checkbox"
                                      class="row-check"
+                                     data-origin="{{ obj.src|default:fonte }}"
                                      data-subsync="k_{{ forloop.parentloop.parentloop.counter0 }}_{{ forloop.parentloop.counter0 }}"
                                      value="{{ obj.id }}">
                             </td>
@@ -150,7 +149,6 @@
                       <tfoot>
                         <tr>
                           <th colspan="3" class="text-end">Total da subcategoria</th>
-                          {# FIX: usar <td> para o valor e alinhar à direita #}
                           <td class="text-end fw-semibold">{{ sub.total_sub|moeda_brasileira }}</td>
                         </tr>
                       </tfoot>
@@ -223,7 +221,6 @@ function getCookie(name) {
 const CSRF_TOKEN = getCookie('csrftoken');
 
 (function(){
-  const fonte = "{{ fonte }}";
   const btnAtribuir = document.getElementById('btn-atribuir');
   const selCount = document.getElementById('sel-count');
 
@@ -235,7 +232,7 @@ const CSRF_TOKEN = getCookie('csrftoken');
   selModo.addEventListener('change', toggleMes);
 
   // ===== Seleção por subgrupo =====
-  const subHeaders = document.querySelectorAll('.check-sub');
+  const subHeaders = document.querySelectorAll('.check-sub'); // se existir
   const allRowChecks = () => Array.from(document.querySelectorAll('.row-check'));
 
   subHeaders.forEach(h => {
@@ -303,18 +300,29 @@ const CSRF_TOKEN = getCookie('csrftoken');
     btnConfirmar.disabled = !(selSub.value || selMacro.value === '0');
   });
 
+  // ===== Submit: separa ids por origem (sem colisão) =====
   document.getElementById('btn-confirmar').addEventListener('click', async () => {
-    const ids = Array.from(document.querySelectorAll('.row-check'))
-                    .filter(c => c.checked)
-                    .map(c => c.value)
-                    .join(',');
-    if (!ids) return;
+    const marcados = allRowChecks().filter(c => c.checked);
+    if (!marcados.length) return;
+
+    const idsCC = [];
+    const idsCartao = [];
+
+    for (const c of marcados) {
+      const origin = (c.dataset.origin || '').toLowerCase();
+      if (origin === 'cc') idsCC.push(c.value);
+      else if (origin === 'cartao') idsCartao.push(c.value);
+      else {
+        // fallback: se por algum motivo vier vazio, melhor abortar pra não arriscar
+        alert('Não foi possível identificar a origem de um lançamento selecionado.');
+        return;
+      }
+    }
 
     const form = new FormData();
-    form.append('fonte', fonte);
-    form.append('ids', ids);
+    if (idsCC.length)     form.append('ids_cc', idsCC.join(','));
+    if (idsCartao.length) form.append('ids_cartao', idsCartao.join(','));
 
-    // “Sem categoria” => limpar (categoria_id = '')
     if (selMacro.value === '0') {
       form.append('categoria_id', '');
     } else {
@@ -331,7 +339,7 @@ const CSRF_TOKEN = getCookie('csrftoken');
 
     if (resp.ok) {
       const p = new URLSearchParams(window.location.search);
-      window.location.search = p.toString(); // reload com filtros
+      window.location.search = p.toString();
     } else {
       const txt = await resp.text();
       alert('Falha ao aplicar categoria.\n' + txt.slice(0, 500));
