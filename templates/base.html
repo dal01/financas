@@ -25,97 +25,96 @@
   {% if APP_DEBUG %} • DEBUG{% endif %}
 </div>
 
-  <!-- Navbar -->
-  <nav class="navbar navbar-expand-lg bg-body-tertiary mb-4 shadow-sm">
-    <div class="container">
-      <a class="navbar-brand fw-semibold" href="{% url 'conta_corrente:transacoes_lista' %}">Finanças</a>
-      <button class="navbar-toggler" type="button"
-              data-bs-toggle="collapse" data-bs-target="#navMain"
-              aria-controls="navMain" aria-expanded="false" aria-label="Alternar navegação">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-      <div id="navMain" class="collapse navbar-collapse">
-        <ul class="navbar-nav me-auto">
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg bg-body-tertiary mb-4 shadow-sm">
+  <div class="container">
+    <a class="navbar-brand fw-semibold" href="{% url 'conta_corrente:transacoes_lista' %}">Finanças</a>
+    <button class="navbar-toggler" type="button"
+            data-bs-toggle="collapse" data-bs-target="#navMain"
+            aria-controls="navMain" aria-expanded="false" aria-label="Alternar navegação">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div id="navMain" class="collapse navbar-collapse">
+      <ul class="navbar-nav me-auto">
 
-          <!-- Conta Corrente -->
-          <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="ccDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-              Conta Corrente
-            </a>
-            <ul class="dropdown-menu" aria-labelledby="ccDropdown">
-              <li><a class="dropdown-item" href="{% url 'conta_corrente:transacoes_lista' %}">Transações</a></li>
-              <li><a class="dropdown-item" href="{% url 'conta_corrente:resumo_mensal' %}">Resumo Mensal</a></li>
-            </ul>
-          </li>
+        <!-- Conta Corrente -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="ccDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Conta Corrente
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="ccDropdown">
+            <li><a class="dropdown-item" href="{% url 'conta_corrente:transacoes_lista' %}">Transações</a></li>
+            <li><a class="dropdown-item" href="{% url 'conta_corrente:resumo_mensal' %}">Resumo Mensal</a></li>
+          </ul>
+        </li>
 
-          <!-- Cartão de Crédito -->
-          <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="ccredDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-              Cartão de Crédito
-            </a>
-            <ul class="dropdown-menu" aria-labelledby="ccredDropdown">
-              <li><a class="dropdown-item" href="{% url 'cartao_credito:faturas_list' %}">Faturas</a></li>
-              <li><a class="dropdown-item" href="{% url 'cartao_credito:resumo_mensal_cartao' %}">Resumo Mensal</a></li>
-            </ul>
-          </li>
+        <!-- Cartão de Crédito -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="ccredDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Cartão de Crédito
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="ccredDropdown">
+            <li><a class="dropdown-item" href="{% url 'cartao_credito:faturas_list' %}">Faturas</a></li>
+            <li><a class="dropdown-item" href="{% url 'cartao_credito:resumo_mensal_cartao' %}">Resumo Mensal</a></li>
+          </ul>
+        </li>
 
-          <!-- Relatórios -->
-          <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="relatoriosDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-              Relatórios
-            </a>
-            <ul class="dropdown-menu" aria-labelledby="relatoriosDropdown">
-              <li>
-                <a class="dropdown-item" href="{% url 'relatorios:resumo_anual' %}">
-                  Gastos por Membro (Anual)
-                </a>
-              </li>
-              <li>
-                <a class="dropdown-item" href="{% url 'relatorios:gastos_por_categoria' %}">
-                  Gastos por Categoria
-                </a>
-              </li>
-            </ul>
-          </li>
+        <!-- Relatórios -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="relatoriosDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Relatórios
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="relatoriosDropdown">
+            <li>
+              <a class="dropdown-item" href="{% url 'relatorios:resumo_anual' %}">
+                Gastos por Membro (Anual)
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item" href="{% url 'relatorios:gastos_por_categoria' %}">
+                Gastos por Categoria
+              </a>
+            </li>
+          </ul>
+        </li>
 
-          <!-- Classificação (inbox de categorias) -->
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'classificacao_gastos' %}">Classificação</a>
-          </li>
+        <!-- Classificação (inbox de categorias) -->
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'classificacao_gastos' %}">Classificação</a>
+        </li>
 
-        </ul>
+      </ul>
 
-        {% block nav_right %}{% endblock %}
-      </div>
+      {% block nav_right %}{% endblock %}
     </div>
-  </nav>
+  </div>
+</nav>
 
-  <main class="container">
+<main class="container">
 
-    <!-- Django messages -->
-    {% if messages %}
-      <div class="mb-3">
-        {% for message in messages %}
-          {% if message.level_tag == "error" %}
-            <div class="alert alert-danger mb-2" role="alert">{{ message }}</div>
-          {% else %}
-            <div class="alert alert-{{ message.level_tag|default:"secondary" }} mb-2" role="alert">
-              {{ message }}
-            </div>
-          {% endif %}
-        {% endfor %}
-      </div>
-    {% endif %}
+  <!-- Django messages -->
+  {% if messages %}
+    <div class="mb-3">
+      {% for message in messages %}
+        {% if message.level_tag == "error" %}
+          <div class="alert alert-danger mb-2" role="alert">{{ message }}</div>
+        {% else %}
+          <div class="alert alert-{{ message.level_tag|default:"secondary" }} mb-2" role="alert">
+            {{ message }}
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
 
+  {% block content %}{% endblock %}
+</main>
 
-    {% block content %}{% endblock %}
-  </main>
+<!-- JS Bootstrap bundle (com Popper) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+        crossorigin="anonymous"></script>
 
-  <!-- JS Bootstrap bundle -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-          integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
-          crossorigin="anonymous"></script>
-
-  {% block extra_js %}{% endblock %}
+{% block extra_js %}{% endblock %}
 </body>
 </html>

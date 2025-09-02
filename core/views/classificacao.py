@@ -1,225 +1,400 @@
 # core/views/classificacao.py
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
-from typing import Any, Optional, Dict
+import calendar
+from typing import Any, Dict, List, Tuple
 
-from django.core.paginator import Paginator
-from django.db.models import F, Value, DecimalField, Q, Case, When, ExpressionWrapper
-from django.db.models.functions import Coalesce
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.db.models import Q
+from django.http import HttpRequest, JsonResponse, HttpResponseBadRequest
 from django.shortcuts import render
-from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
 from core.models import Categoria
 from conta_corrente.models import Transacao
 from cartao_credito.models import Lancamento
 
+SENTINEL_SEM_CATEGORIA = 0
+IGNORAR_CATEGORIA_PAGTO_CARTAO = "Pagamentos de cartão"  # iexact
 
-# =========================
-# COLUNAS (ajuste aqui se mudar nomes dos campos)
-# =========================
+# Lista as categorias macro (sem pai) para popular filtros e modal
+def _fetch_macros_for_filters():
+    from core.models import Categoria
+    return Categoria.objects.filter(categoria_pai__isnull=True).order_by("nome")
 
-# Transação (conta corrente)
-TX_COL_DATA = "data"
-TX_COL_DESC = "descricao"
-TX_COL_VAL = "valor"
-TX_COL_CAT = "categoria"
-
-# Lançamento (cartão)
-LC_COL_DATA = "data"       # <- no seu modelo é 'data'
-LC_COL_DESC = "descricao"
-LC_COL_VAL = "valor"
-LC_COL_CAT = "categoria"
 
 
 # =========================
-# HELPERS
+# Período
 # =========================
-def _get_param(request, name: str, default: str = "") -> str:
-    return (request.GET.get(name) or request.POST.get(name) or default).strip()
+def _periodo_from_get(request: HttpRequest) -> Tuple[date, date, Dict[str, Any]]:
+    today = date.today()
+    modo = (request.GET.get("modo") or "ano").lower()
+    try:
+        ano = int(request.GET.get("ano") or today.year)
+    except Exception:
+        ano = today.year
+
+    if modo == "mes":
+        try:
+            mes = int(request.GET.get("mes") or today.month)
+            mes = 1 if mes < 1 else (12 if mes > 12 else mes)
+        except Exception:
+            mes = today.month
+        dt_ini = date(ano, mes, 1)
+        last_day = calendar.monthrange(ano, mes)[1]
+        dt_fim = date(ano, mes, last_day)
+        periodo_label = f"{dt_ini:%B/%Y}".capitalize()
+    else:
+        dt_ini = date(ano, 1, 1)
+        dt_fim = date(ano, 12, 31)
+        periodo_label = f"{ano}"
+
+    return dt_ini, dt_fim, {
+        "modo": modo,
+        "ano": ano,
+        "mes": dt_ini.month if modo == "mes" else None,
+        "periodo_label": periodo_label,
+    }
 
 
-def _filtro_busca(qs, campo_desc: str, termo: str):
-    if termo:
-        qs = qs.filter(Q(**{f"{campo_desc}__icontains": termo}))
-    return qs
-
-
-def _paginar(request, qs, per_page: int = 50):
-    p = Paginator(qs, per_page)
-    page = request.GET.get("page") or 1
-    return p.get_page(page)
-
-
-def _oculta_filter_kwargs(model) -> Optional[Dict[str, Any]]:
-    """
-    Descobre automaticamente um possível campo booleano de 'ocultação'
-    no model e retorna kwargs para filtrar/excluir.
-    Nomes comuns suportados: ocultar, oculta, oculto, ignorada, ignorar, is_oculta, is_ignorada.
-    """
-    candidate_fields = [
-        "ocultar", "oculta", "oculto",
+# =========================
+# Helpers de ocultação
+# =========================
+def _oculta_filter_kwargs(model) -> Dict[str, bool]:
+    candidates = [
+        "oculta", "ocultar", "oculto",
+        "oculta_manual", "ocultar_manual",
         "ignorada", "ignorar",
         "is_oculta", "is_ignorada",
     ]
-    for fname in candidate_fields:
+    found = []
+    for fname in candidates:
         try:
             model._meta.get_field(fname)
-            return {fname: True}
+            found.append(fname)
         except Exception:
-            continue
-    return None
+            pass
+    return {f: True for f in found}
 
 
 def _excluir_ocultas(qs, model):
-    """
-    Aplica exclude em cima do campo de 'ocultação' se existir no model.
-    Caso não exista, retorna o queryset sem alteração.
-    """
     kwargs = _oculta_filter_kwargs(model)
-    return qs.exclude(**kwargs) if kwargs else qs
+    for k, v in kwargs.items():
+        qs = qs.exclude(**{k: v})
+    return qs
 
 
 # =========================
-# QUERYSETS BASE
+# Query + filtros (fonte única)
 # =========================
-def qs_transacoes(request):
-    """Transações (conta corrente) SEM categoria e APENAS despesas (valor < 0)."""
-    qs = Transacao.objects.all()
-
-    # Ignora transações marcadas como 'ocultas' (se o campo existir)
-    qs = _excluir_ocultas(qs, Transacao)
-
-    # Apenas sem categoria
-    qs = qs.filter(**{f"{TX_COL_CAT}__isnull": True})
-
-    # Apenas despesas: valor < 0
-    qs = qs.filter(**{f"{TX_COL_VAL}__lt": 0})
-
-    # Busca por descrição (opcional)
-    qs = _filtro_busca(qs, TX_COL_DESC, _get_param(request, "busca"))
-
-    # Valor para exibição como positivo (−valor)
-    qs = qs.annotate(
-        valor_despesa=Case(
-            When(**{f"{TX_COL_VAL}__lt": 0},
-                 then=ExpressionWrapper(-F(TX_COL_VAL), output_field=DecimalField())),
-            default=Value(Decimal("0.00")),
-            output_field=DecimalField(),
-        ),
-    )
-
-    # Ordene ANTES de paginar
-    return qs.order_by(f"-{TX_COL_DATA}", "-id")
-
-
-def qs_lancamentos(request):
-    """Lançamentos (cartão) SEM categoria. Mantém o sinal original (positivos = despesa)."""
-    qs = Lancamento.objects.all()
-
-    # Ignora lançamentos marcados como 'ocultos' (se o campo existir)
-    qs = _excluir_ocultas(qs, Lancamento)
-
-    # Apenas sem categoria
-    qs = qs.filter(**{f"{LC_COL_CAT}__isnull": True})
-
-    # Busca
-    qs = _filtro_busca(qs, LC_COL_DESC, _get_param(request, "busca"))
-
-    # Para cartão, mostramos o valor como está (positivos somam, negativos são estorno/ajuste)
-    qs = qs.annotate(
-        valor_despesa=Coalesce(F(LC_COL_VAL), Value(0, output_field=DecimalField())),
-    )
-    return qs.order_by(f"-{LC_COL_DATA}", "-id")
-
-
-# =========================
-# VIEW PRINCIPAL
-# =========================
-@ensure_csrf_cookie
-@require_http_methods(["GET"])
-def classificacao_gastos(request):
+def _fetch_queryset(
+    fonte: str,
+    dt_ini: date,
+    dt_fim: date,
+    busca: str | None,
+    macro_id: int | None,
+    sub_id: int | None,
+):
     """
-    Inbox de classificação com duas abas:
-    - fonte=cc (conta corrente)
-    - fonte=cartao (cartão de crédito)
+    - CC: só despesas (valor < 0); exclui 'Pagamentos de cartão'
+    - Cartão: somente valor > 0 (não mostra créditos/estornos)
+    - Exclui registros marcados como ocultos
+    - Filtros de macro/sub (macro=0 => Sem categoria)
     """
-    fonte = _get_param(request, "fonte", "cc")
-    per_page = int(_get_param(request, "pp", "50") or 50)
-
-    macros = Categoria.objects.filter(nivel=1).order_by("nome")
-
     if fonte == "cartao":
-        page_obj = _paginar(request, qs_lancamentos(request), per_page)
-        cols = dict(col_data=LC_COL_DATA, col_desc=LC_COL_DESC, col_val="valor_despesa", col_id="id")
-        titulo = "Classificação – Cartão de Crédito"
+        qs = Lancamento.objects.filter(data__gte=dt_ini, data__lte=dt_fim)
+        qs = _excluir_ocultas(qs, Lancamento)
+        qs = qs.filter(valor__gt=0)  # não mostrar negativos
+        if busca:
+            qs = qs.filter(Q(descricao__icontains=busca))
     else:
-        page_obj = _paginar(request, qs_transacoes(request), per_page)
-        cols = dict(col_data=TX_COL_DATA, col_desc=TX_COL_DESC, col_val="valor_despesa", col_id="id")
-        titulo = "Classificação – Conta Corrente"
+        qs = Transacao.objects.filter(data__gte=dt_ini, data__lte=dt_fim)
+        qs = _excluir_ocultas(qs, Transacao)
+        qs = qs.filter(valor__lt=0)  # apenas despesas
+        qs = qs.exclude(categoria__nome__iexact=IGNORAR_CATEGORIA_PAGTO_CARTAO)
+        if busca:
+            qs = qs.filter(Q(descricao__icontains=busca))
 
-    ctx = {
-        "fonte": fonte,
-        "page_obj": page_obj,
-        "cols": cols,
-        "macros": macros,
-        "busca": _get_param(request, "busca"),
-        "per_page": per_page,
-        "title": titulo,
-    }
-    return render(request, "classificacao/gastos.html", ctx)
+    if macro_id is not None:
+        if macro_id == SENTINEL_SEM_CATEGORIA:
+            qs = qs.filter(categoria__isnull=True)
+        else:
+            qs = qs.filter(Q(categoria_id=macro_id) | Q(categoria__categoria_pai_id=macro_id))
+
+    if sub_id is not None:
+        qs = qs.filter(categoria_id=sub_id)
+
+    qs = qs.select_related("categoria", "categoria__categoria_pai").order_by(
+        "categoria__categoria_pai__nome",
+        "categoria__nome",
+        "-data",
+        "-id",
+    )
+    return qs
+
+
+def _amount_for_item(o, fonte: str) -> Decimal:
+    """Valor positivo para somatório."""
+    val = Decimal(o.valor or 0)
+    if fonte == "cc":
+        # valor < 0; somar como positivo
+        return val.copy_abs()
+    # cartão: já filtrado valor > 0
+    return val
 
 
 # =========================
-# AJAX: carregar subcategorias de uma macro
+# Agrupamento
+# =========================
+def _build_groups(objs, fonte: str):
+    """
+    Retorna:
+    [
+      {
+        "macro_id": ...,
+        "macro_nome": ...,
+        "total_macro": Decimal,
+        "subs": [
+          { "sub_id": ..., "sub_nome": ..., "total_sub": Decimal, "items": [obj, ...] }
+        ]
+      }, ...
+    ]
+    """
+    macros: Dict[int, Dict[str, Any]] = {}
+
+    for o in objs:
+        cat = getattr(o, "categoria", None)
+        if cat is None:
+            macro_id = SENTINEL_SEM_CATEGORIA
+            macro_nome = "Sem categoria"
+            sub_id = None
+            sub_nome = "—"
+        else:
+            if cat.categoria_pai_id is None:
+                macro_id = cat.id
+                macro_nome = cat.nome
+                sub_id = cat.id
+                sub_nome = cat.nome
+            else:
+                macro_id = cat.categoria_pai_id
+                macro_nome = cat.categoria_pai.nome
+                sub_id = cat.id
+                sub_nome = cat.nome
+
+        m = macros.setdefault(macro_id, {
+            "macro_id": macro_id,
+            "macro_nome": macro_nome,
+            "total_macro": Decimal("0"),
+            "subs": {},
+        })
+        s = m["subs"].setdefault(sub_id, {
+            "sub_id": sub_id,
+            "sub_nome": sub_nome,
+            "total_sub": Decimal("0"),
+            "items": [],
+        })
+        s["items"].append(o)
+
+        amt = _amount_for_item(o, fonte)
+        s["total_sub"] += amt
+        m["total_macro"] += amt
+
+    macro_list: List[Dict[str, Any]] = []
+    for m in macros.values():
+        subs_list = list(m["subs"].values())
+        subs_list.sort(key=lambda x: (x["sub_nome"] or "").lower())
+        macro_list.append({
+            "macro_id": m["macro_id"],
+            "macro_nome": m["macro_nome"],
+            "total_macro": m["total_macro"],
+            "subs": subs_list,
+        })
+    macro_list.sort(key=lambda m: (m["macro_nome"] or "").lower())
+    return macro_list
+
+
+# =========================
+# Unificação CC + Cartão
+# =========================
+def _fetch_queryset_single(fonte: str, dt_ini, dt_fim, busca, macro_id, sub_id):
+    return _fetch_queryset(fonte, dt_ini, dt_fim, busca, macro_id, sub_id)
+
+
+def _build_groups_from_multiple(qs_cc, qs_cartao):
+    all_objs = list(qs_cc) + list(qs_cartao)
+    # Para soma correta, o _amount_for_item precisa saber a fonte,
+    # mas ao unificar não saberemos item a item. Solução:
+    # - já transformar 'valor' dos itens de CC em positivo antes de unificar
+    #   sem alterar o objeto original (criamos um atributo transient _valor_abs).
+    #   Para simplificar, vamos chamar _build_groups duas vezes e somar depois.
+    # Alternativa simples: duplicar lógica de soma aqui:
+
+    macros: Dict[int, Dict[str, Any]] = {}
+
+    # Helper interno para acumular
+    def push_item(o, fonte_tag: str):
+        cat = getattr(o, "categoria", None)
+        if cat is None:
+            macro_id = SENTINEL_SEM_CATEGORIA
+            macro_nome = "Sem categoria"
+            sub_id = None
+            sub_nome = "—"
+        else:
+            if cat.categoria_pai_id is None:
+                macro_id = cat.id
+                macro_nome = cat.nome
+                sub_id = cat.id
+                sub_nome = cat.nome
+            else:
+                macro_id = cat.categoria_pai_id
+                macro_nome = cat.categoria_pai.nome
+                sub_id = cat.id
+                sub_nome = cat.nome
+
+        m = macros.setdefault(macro_id, {
+            "macro_id": macro_id,
+            "macro_nome": macro_nome,
+            "total_macro": Decimal("0"),
+            "subs": {},
+        })
+        s = m["subs"].setdefault(sub_id, {
+            "sub_id": sub_id,
+            "sub_nome": sub_nome,
+            "total_sub": Decimal("0"),
+            "items": [],
+        })
+        s["items"].append(o)
+
+        val = Decimal(o.valor or 0)
+        if fonte_tag == "cc":
+            val = val.copy_abs()
+        s["total_sub"] += val
+        m["total_macro"] += val
+
+    for o in qs_cc:
+        push_item(o, "cc")
+    for o in qs_cartao:
+        push_item(o, "cartao")
+
+    macro_list: List[Dict[str, Any]] = []
+    for m in macros.values():
+        subs_list = list(m["subs"].values())
+        subs_list.sort(key=lambda x: (x["sub_nome"] or "").lower())
+        macro_list.append({
+            "macro_id": m["macro_id"],
+            "macro_nome": m["macro_nome"],
+            "total_macro": m["total_macro"],
+            "subs": subs_list,
+        })
+    macro_list.sort(key=lambda m: (m["macro_nome"] or "").lower())
+    return macro_list
+
+
+# =========================
+# View principal (exportada)
+# =========================
+def classificacao_gastos(request: HttpRequest):
+    fonte = (request.GET.get("fonte") or "todas").lower()
+    if fonte not in ("cc", "cartao", "todas"):
+        fonte = "todas"
+
+    busca = (request.GET.get("busca") or "").strip()
+    dt_ini, dt_fim, ctx_periodo = _periodo_from_get(request)
+
+    def parse_int_or_none(v: str | None):
+        if not v:
+            return None
+        try:
+            return int(v)
+        except Exception:
+            return None
+
+    macro_id = parse_int_or_none(request.GET.get("macro_id"))
+    sub_id = parse_int_or_none(request.GET.get("sub_id"))
+
+    if fonte == "todas":
+        qs_cc = _fetch_queryset_single("cc", dt_ini, dt_fim, busca, macro_id, sub_id)
+        qs_cartao = _fetch_queryset_single("cartao", dt_ini, dt_fim, busca, macro_id, sub_id)
+        grupos = _build_groups_from_multiple(qs_cc, qs_cartao)
+    else:
+        qs = _fetch_queryset_single(fonte, dt_ini, dt_fim, busca, macro_id, sub_id)
+        grupos = _build_groups(qs, fonte)
+
+    macros = _fetch_macros_for_filters()
+
+    anos_disponiveis = list(range(date.today().year - 4, date.today().year + 1))
+    meses = [
+        (1, "Janeiro"), (2, "Fevereiro"), (3, "Março"), (4, "Abril"),
+        (5, "Maio"), (6, "Junho"), (7, "Julho"), (8, "Agosto"),
+        (9, "Setembro"), (10, "Outubro"), (11, "Novembro"), (12, "Dezembro"),
+    ]
+
+    context = {
+        "title": "Classificação de Gastos",
+        "fonte": fonte,
+        "busca": busca,
+        **ctx_periodo,
+        "anos_disponiveis": anos_disponiveis,
+        "meses": meses,
+        "macros": macros,
+        "macro_id_sel": macro_id,
+        "sub_id_sel": sub_id,
+        "grupos": grupos,
+    }
+    return render(request, "classificacao/gastos.html", context)
+
+
+# =========================
+# AJAX: carregar subcategorias
 # =========================
 @require_http_methods(["GET"])
-def carregar_subcategorias_ajax(request):
-    macro_id = _get_param(request, "macro_id")
-    if not macro_id:
+def carregar_subcategorias_ajax(request: HttpRequest):
+    macro_id = request.GET.get("macro_id")
+    try:
+        macro_id_int = int(macro_id)
+    except Exception:
         return JsonResponse({"items": []})
-    items = list(
-        Categoria.objects.filter(categoria_pai_id=macro_id, nivel=2)
-        .order_by("nome")
-        .values("id", "nome")
-    )
+
+    if macro_id_int == SENTINEL_SEM_CATEGORIA:  # 0 => sem categoria
+        return JsonResponse({"items": []})
+
+    subs = Categoria.objects.filter(categoria_pai_id=macro_id_int).order_by("nome")
+    items = [{"id": c.id, "nome": c.nome} for c in subs]
     return JsonResponse({"items": items})
 
 
 # =========================
-# AJAX: atribuir categoria (lote)
+# AJAX: atribuir categoria em lote
 # =========================
 @require_http_methods(["POST"])
-def atribuir_categoria_ajax(request):
-    """
-    body:
-      fonte: 'cc' | 'cartao'
-      ids: '1,2,3'
-      categoria_id: '123'
-    """
-    fonte = _get_param(request, "fonte")
-    ids_str = _get_param(request, "ids")
-    categoria_id = _get_param(request, "categoria_id")
+def atribuir_categoria_ajax(request: HttpRequest):
+    fonte = (request.POST.get("fonte") or "").lower()
+    ids_raw = request.POST.get("ids") or ""
+    categoria_id_raw = request.POST.get("categoria_id")  # '' => limpar
 
-    if not (fonte and ids_str and categoria_id):
-        return HttpResponseBadRequest("Parâmetros inválidos.")
+    if fonte not in ("cc", "cartao"):
+        return HttpResponseBadRequest("Fonte inválida")
 
     try:
-        cat = Categoria.objects.get(pk=int(categoria_id))
+        ids = [int(x) for x in ids_raw.split(",") if x.strip()]
     except Exception:
-        return HttpResponseBadRequest("Categoria inválida.")
-
-    ids = [int(x) for x in ids_str.split(",") if x.strip().isdigit()]
+        return HttpResponseBadRequest("IDs inválidos")
     if not ids:
-        return HttpResponseBadRequest("Nenhum ID informado.")
+        return HttpResponseBadRequest("Nenhum ID informado")
 
-    if fonte == "cc":
-        count = Transacao.objects.filter(pk__in=ids).update(**{TX_COL_CAT: cat})
-    elif fonte == "cartao":
-        count = Lancamento.objects.filter(pk__in=ids).update(**{LC_COL_CAT: cat})
-    else:
-        return HttpResponseBadRequest("Fonte inválida.")
+    categoria_id = None
+    if categoria_id_raw not in (None, ""):
+        try:
+            categoria_id = int(categoria_id_raw)
+        except Exception:
+            return HttpResponseBadRequest("categoria_id inválido")
 
-    return JsonResponse({"ok": True, "atualizados": count})
+    Model = Lancamento if fonte == "cartao" else Transacao
+
+    if categoria_id is not None and not Categoria.objects.filter(id=categoria_id).exists():
+        return HttpResponseBadRequest("Categoria inexistente")
+
+    updated = Model.objects.filter(id__in=ids).update(categoria_id=categoria_id)
+    return JsonResponse({"ok": True, "updated": updated})

@@ -11,82 +11,165 @@
   <div class="d-flex align-items-center justify-content-between mb-3 gap-2 flex-wrap">
     <h1 class="h5 mb-0">{{ title }}</h1>
 
-    <form method="get" class="d-flex gap-2">
-      <input type="hidden" name="fonte" value="{{ fonte }}">
-      <input type="search" class="form-control" name="busca" placeholder="Buscar descrição…" value="{{ busca }}">
-      <select class="form-select" name="pp" style="max-width:120px">
-        <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
-        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
-        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
-      </select>
-      <button class="btn btn-outline-secondary" type="submit">Filtrar</button>
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label mb-1">Fonte</label>
+        <select class="form-select" name="fonte">
+          <option value="todas" {% if fonte == 'todas' %}selected{% endif %}>Todas</option>
+          <option value="cc" {% if fonte == 'cc' %}selected{% endif %}>Conta Corrente</option>
+          <option value="cartao" {% if fonte == 'cartao' %}selected{% endif %}>Cartão</option>
+        </select>
+      </div>
+
+      <div class="col-auto">
+        <label class="form-label mb-1">Modo</label>
+        <select class="form-select" name="modo" id="sel-modo">
+          <option value="ano" {% if modo == 'ano' %}selected{% endif %}>Ano</option>
+          <option value="mes" {% if modo == 'mes' %}selected{% endif %}>Mês</option>
+        </select>
+      </div>
+
+      <div class="col-auto">
+        <label class="form-label mb-1">Ano</label>
+        <select class="form-select" name="ano">
+          {% for a in anos_disponiveis %}
+            <option value="{{ a }}" {% if a == ano %}selected{% endif %}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-auto" id="box-mes">
+        <label class="form-label mb-1">Mês</label>
+        <select class="form-select" name="mes">
+          {% for midx, mlabel in meses %}
+            <option value="{{ midx }}" {% if mes == midx %}selected{% endif %}>{{ mlabel }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-auto">
+        <label class="form-label mb-1">Categoria (Macro)</label>
+        <select class="form-select" name="macro_id" id="filtro-macro">
+          <option value="">– todas –</option>
+          <option value="0" {% if macro_id_sel == 0 %}selected{% endif %}>Sem categoria</option>
+          {% for m in macros %}
+            <option value="{{ m.id }}" {% if macro_id_sel == m.id %}selected{% endif %}>{{ m.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-auto">
+        <label class="form-label mb-1">Subcategoria</label>
+        <select class="form-select" name="sub_id" id="filtro-sub" {% if not macro_id_sel %}disabled{% endif %}>
+          <option value="">– todas –</option>
+        </select>
+      </div>
+
+      <div class="col-auto">
+        <label class="form-label mb-1">Busca</label>
+        <input type="search" class="form-control" name="busca" placeholder="Descrição…" value="{{ busca }}">
+      </div>
+
+      <div class="col-auto">
+        <button class="btn btn-outline-secondary">Filtrar</button>
+      </div>
     </form>
   </div>
 
-  <!-- Abas -->
-  <ul class="nav nav-tabs mb-3">
-    <li class="nav-item">
-      <a class="nav-link {% if fonte == 'cc' %}active{% endif %}" href="?fonte=cc&busca={{ busca|urlencode }}&pp={{ per_page }}">Conta Corrente</a>
-    </li>
-    <li class="nav-item">
-      <a class="nav-link {% if fonte == 'cartao' %}active{% endif %}" href="?fonte=cartao&busca={{ busca|urlencode }}&pp={{ per_page }}">Cartão</a>
-    </li>
-  </ul>
-
-  <!-- Ações em lote -->
-  <div class="d-flex align-items-center gap-2 mb-2">
+  <div class="mb-2 d-flex align-items-center gap-3 flex-wrap">
+    <span class="badge text-bg-primary">Período: {{ periodo_label }}</span>
     <button id="btn-atribuir" class="btn btn-primary btn-sm" disabled>Atribuir categoria</button>
     <span id="sel-count" class="text-muted small">0 selecionadas</span>
   </div>
 
-  <!-- Tabela -->
-  <div class="table-responsive">
-    <table class="table table-sm align-middle">
-      <thead>
-        <tr>
-          <th style="width:28px"><input type="checkbox" id="check-all"></th>
-          <th style="width:120px">Data</th>
-          <th>Descrição</th>
-          <th class="text-end" style="width:160px">Valor</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for obj in page_obj %}
-          <tr>
-            <td><input type="checkbox" class="row-check" value="{{ obj.id }}"></td>
-            <td>{{ obj|attr:cols.col_data|date:"d/m/Y" }}</td>
-            <td>{{ obj|attr:cols.col_desc }}</td>
-            <td class="text-end">{{ obj|attr:cols.col_val|moeda_brasileira }}</td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="4" class="text-center text-muted py-4">Nada a classificar.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {# Agrupado por Macro -> Sub (accordion por sub) #}
+  {% for macro in grupos %}
+    <div class="card mb-3">
+      <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <strong>{{ macro.macro_nome }}</strong>
+        <span class="fw-semibold text-end">{{ macro.total_macro|moeda_brasileira }}</span>
+      </div>
 
-  <!-- Paginação -->
-  {% if page_obj.paginator.num_pages > 1 %}
-  <nav>
-    <ul class="pagination pagination-sm">
-      {% if page_obj.has_previous %}
-      <li class="page-item"><a class="page-link" href="?fonte={{ fonte }}&busca={{ busca|urlencode }}&pp={{ per_page }}&page={{ page_obj.previous_page_number }}">«</a></li>
-      {% else %}
-      <li class="page-item disabled"><span class="page-link">«</span></li>
-      {% endif %}
-      <li class="page-item disabled"><span class="page-link">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span></li>
-      {% if page_obj.has_next %}
-      <li class="page-item"><a class="page-link" href="?fonte={{ fonte }}&busca={{ busca|urlencode }}&pp={{ per_page }}&page={{ page_obj.next_page_number }}">»</a></li>
-      {% else %}
-      <li class="page-item disabled"><span class="page-link">»</span></li>
-      {% endif %}
-    </ul>
-  </nav>
-  {% endif %}
+      <div class="card-body p-2">
+        <div class="accordion" id="acc_{{ forloop.counter0 }}">
+          {% for sub in macro.subs %}
+            <div class="accordion-item">
+              <h2 class="accordion-header" id="hdr_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}">
+                <button class="accordion-button collapsed py-2"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#col_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}"
+                        aria-expanded="false"
+                        aria-controls="col_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}">
+                  <span class="me-2">{{ sub.sub_nome }}</span>
+                  {# FIX: bloco do total com largura mínima e alinhado à direita #}
+                  <span class="ms-auto text-end small text-muted d-inline-block"
+                        style="min-width: 160px;">
+                    {{ sub.total_sub|moeda_brasileira }}
+                  </span>
+                </button>
+              </h2>
+              <div id="col_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}"
+                   class="accordion-collapse collapse"
+                   aria-labelledby="hdr_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}"
+                   data-bs-parent="#acc_{{ forloop.parentloop.counter0 }}">
+                <div class="accordion-body p-0">
+                  <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                      <thead>
+                        <tr>
+                          <th style="width:28px"></th>
+                          <th style="width:120px">Data</th>
+                          <th>Descrição</th>
+                          <th class="text-end" style="width:160px">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for obj in sub.items %}
+                          <tr>
+                            <td>
+                              <input type="checkbox"
+                                     class="row-check"
+                                     data-subsync="k_{{ forloop.parentloop.parentloop.counter0 }}_{{ forloop.parentloop.counter0 }}"
+                                     value="{{ obj.id }}">
+                            </td>
+                            <td>{{ obj.data|date:"d/m/Y" }}</td>
+                            <td>{{ obj.descricao }}</td>
+                            <td class="text-end">
+                              {% if fonte == 'cc' %}
+                                {{ obj.valor|absval|moeda_brasileira }}
+                              {% else %}
+                                {{ obj.valor|moeda_brasileira }}
+                              {% endif %}
+                            </td>
+                          </tr>
+                        {% empty %}
+                          <tr><td colspan="4" class="text-center text-muted py-3">Sem lançamentos</td></tr>
+                        {% endfor %}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <th colspan="3" class="text-end">Total da subcategoria</th>
+                          {# FIX: usar <td> para o valor e alinhar à direita #}
+                          <td class="text-end fw-semibold">{{ sub.total_sub|moeda_brasileira }}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  {% empty %}
+    <div class="text-center text-muted py-4">Nenhum lançamento no período/filtros.</div>
+  {% endfor %}
 
 </div>
 
-<!-- Modal de Categoria -->
+{# Modal de Categoria #}
 <div class="modal fade" id="modalCategoria" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-sm modal-dialog-centered">
     <div class="modal-content">
@@ -100,6 +183,7 @@
           <label class="form-label mb-1">Macro</label>
           <select id="sel-macro" class="form-select form-select-sm">
             <option value="">– selecione –</option>
+            <option value="0">Sem categoria</option>
             {% for m in macros %}
               <option value="{{ m.id }}">{{ m.nome }}</option>
             {% endfor %}
@@ -125,7 +209,7 @@
 
 {% block extra_js %}
 <script>
-// CSRF helper
+// ==== CSRF ====
 function getCookie(name) {
   const cookieStr = document.cookie;
   if (!cookieStr) return null;
@@ -140,28 +224,42 @@ const CSRF_TOKEN = getCookie('csrftoken');
 
 (function(){
   const fonte = "{{ fonte }}";
-  const checkAll = document.getElementById('check-all');
   const btnAtribuir = document.getElementById('btn-atribuir');
   const selCount = document.getElementById('sel-count');
+
+  // ===== Toggle de mês no filtro de período =====
+  const selModo = document.getElementById('sel-modo');
+  const boxMes = document.getElementById('box-mes');
+  function toggleMes(){ boxMes.style.display = selModo.value === 'mes' ? '' : 'none'; }
+  toggleMes();
+  selModo.addEventListener('change', toggleMes);
+
+  // ===== Seleção por subgrupo =====
+  const subHeaders = document.querySelectorAll('.check-sub');
+  const allRowChecks = () => Array.from(document.querySelectorAll('.row-check'));
+
+  subHeaders.forEach(h => {
+    h.addEventListener('change', () => {
+      const key = h.dataset.subsync;
+      const rows = allRowChecks().filter(r => r.dataset.subsync === key);
+      rows.forEach(r => r.checked = h.checked);
+      updateSelection();
+    });
+  });
+
+  function updateSelection() {
+    const selected = allRowChecks().filter(c => c.checked).length;
+    selCount.textContent = `${selected} selecionadas`;
+    btnAtribuir.disabled = selected === 0;
+  }
+  allRowChecks().forEach(c => c.addEventListener('change', updateSelection));
+
+  // ===== Modal de Atribuição =====
   const selMacro = document.getElementById('sel-macro');
   const selSub = document.getElementById('sel-sub');
   const btnConfirmar = document.getElementById('btn-confirmar');
   const modalEl = document.getElementById('modalCategoria');
   const modal = new bootstrap.Modal(modalEl);
-
-  const checks = () => Array.from(document.querySelectorAll('.row-check'));
-
-  function updateSelection() {
-    const selected = checks().filter(c => c.checked).length;
-    selCount.textContent = `${selected} selecionadas`;
-    btnAtribuir.disabled = selected === 0;
-  }
-
-  checkAll?.addEventListener('change', e => {
-    checks().forEach(c => c.checked = e.target.checked);
-    updateSelection();
-  });
-  checks().forEach(c => c.addEventListener('change', updateSelection));
 
   btnAtribuir.addEventListener('click', () => {
     selMacro.value = '';
@@ -175,10 +273,19 @@ const CSRF_TOKEN = getCookie('csrftoken');
     const macroId = selMacro.value;
     selSub.disabled = true;
     btnConfirmar.disabled = true;
-    if (!macroId) {
+
+    if (macroId === '') {
       selSub.innerHTML = '<option value="">– selecione a macro –</option>';
       return;
     }
+    if (macroId === '0') {
+      // “Sem categoria”
+      selSub.innerHTML = '<option value="">– sem sub –</option>';
+      selSub.disabled = true;
+      btnConfirmar.disabled = false;
+      return;
+    }
+
     const url = "{% url 'carregar_subcategorias_ajax' %}" + `?macro_id=${macroId}`;
     const resp = await fetch(url, { credentials: 'same-origin' });
     const data = await resp.json();
@@ -193,19 +300,28 @@ const CSRF_TOKEN = getCookie('csrftoken');
   });
 
   selSub.addEventListener('change', () => {
-    btnConfirmar.disabled = !selSub.value;
+    btnConfirmar.disabled = !(selSub.value || selMacro.value === '0');
   });
 
   document.getElementById('btn-confirmar').addEventListener('click', async () => {
-    const ids = checks().filter(c => c.checked).map(c => c.value).join(',');
-    if (!ids || !selSub.value) return;
+    const ids = Array.from(document.querySelectorAll('.row-check'))
+                    .filter(c => c.checked)
+                    .map(c => c.value)
+                    .join(',');
+    if (!ids) return;
 
-    const url = "{% url 'atribuir_categoria_ajax' %}";
     const form = new FormData();
     form.append('fonte', fonte);
     form.append('ids', ids);
-    form.append('categoria_id', selSub.value);
 
+    // “Sem categoria” => limpar (categoria_id = '')
+    if (selMacro.value === '0') {
+      form.append('categoria_id', '');
+    } else {
+      form.append('categoria_id', selSub.value || selMacro.value);
+    }
+
+    const url = "{% url 'atribuir_categoria_ajax' %}";
     const resp = await fetch(url, {
       method: 'POST',
       body: form,
@@ -215,12 +331,39 @@ const CSRF_TOKEN = getCookie('csrftoken');
 
     if (resp.ok) {
       const p = new URLSearchParams(window.location.search);
-      window.location.search = p.toString(); // reload mantendo filtros
+      window.location.search = p.toString(); // reload com filtros
     } else {
       const txt = await resp.text();
       alert('Falha ao aplicar categoria.\n' + txt.slice(0, 500));
     }
   });
+
+  // ===== Preenche filtro de Sub ao carregar se já houver Macro =====
+  (async function hydrateFiltroSub(){
+    const macroId = "{{ macro_id_sel|default:'' }}";
+    const subId = "{{ sub_id_sel|default:'' }}";
+    const subSel = document.getElementById('filtro-sub');
+
+    if (!macroId) return;
+
+    if (macroId === '0') {
+      subSel.innerHTML = '<option value="">– todas –</option>';
+      subSel.disabled = true;
+      return;
+    }
+    const url = "{% url 'carregar_subcategorias_ajax' %}" + `?macro_id=${macroId}`;
+    const resp = await fetch(url, { credentials: 'same-origin' });
+    const data = await resp.json();
+    subSel.innerHTML = '<option value="">– todas –</option>';
+    for (const item of data.items) {
+      const opt = document.createElement('option');
+      opt.value = item.id;
+      opt.textContent = item.nome;
+      if (subId && String(item.id) === String(subId)) opt.selected = true;
+      subSel.appendChild(opt);
+    }
+    subSel.disabled = false;
+  })();
 
 })();
 </script>
