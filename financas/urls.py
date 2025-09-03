@@ -8,7 +8,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
 
     # Conta Corrente
-    path("", include(("conta_corrente.urls", "conta_corrente"), namespace="conta_corrente")),
+    path("", include(("conta_corrente.urls", "resumo_mensal"), namespace="resumo_mensal")),
 
     # Cartão de Crédito
     path("cartao_credito/", include(("cartao_credito.urls", "cartao_credito"), namespace="cartao_credito")),
@@ -20,4 +20,7 @@ urlpatterns = [
     path("classificacao/", v.classificacao_gastos, name="classificacao_gastos"),
     path("classificacao/atribuir/", v.atribuir_categoria_ajax, name="atribuir_categoria_ajax"),
     path("classificacao/subcategorias/", v.carregar_subcategorias_ajax, name="carregar_subcategorias_ajax"),
+    
+    # Planejamento
+    path("planejamento/", include("planejamento.urls")),
 ]

@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% load static %}
+{% load formatadores %}
+
+{% block title %}Metas — Planejamento{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h1 class="h4 mb-0">Metas</h1>
+
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalNovaMeta">
+        + Adicionar meta
+      </button>
+    </div>
+  </div>
+
+  {% if messages %}
+    <div class="mb-3">
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} mb-2" role="alert">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="get" class="row g-2 align-items-end mb-3">
+    <div class="col-12 col-sm-6 col-lg-4">
+      <label class="form-label">Buscar</label>
+      <input type="search" name="q" value="{{ busca }}" class="form-control" placeholder="Descrição ou observações">
+    </div>
+    <div class="col-6 col-sm-3 col-lg-2">
+      <label class="form-label">Status</label>
+      <select name="status" class="form-select">
+        <option value="">Todos</option>
+        {% for value,label in status_choices %}
+          <option value="{{ value }}" {% if status_sel == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-sm-3 col-lg-2">
+      <button type="submit" class="btn btn-outline-secondary w-100">Filtrar</button>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
+        <tr>
+          <th style="min-width: 220px;">Descrição</th>
+          <th class="text-end" style="width: 160px;">Valor</th>
+          <th style="width: 140px;">Data</th>
+          <th class="text-center" style="width: 120px;">Prioridade</th>
+          <th style="width: 140px;">Status</th>
+          <th class="text-center" style="width: 64px;">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in page_obj.object_list %}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{ m.descricao }}</div>
+              {% if m.observacoes %}
+                <div class="text-body-secondary small">{{ m.observacoes|truncatechars:120 }}</div>
+              {% endif %}
+              {% if m.status == "concluida" %}
+                <span class="badge text-bg-success mt-1">Concluída</span>
+              {% else %}
+                {% if m.faltam_dias is not None %}
+                  {% if m.faltam_dias < 0 %}
+                    <span class="badge text-bg-danger mt-1">Atrasada {{ m.faltam_dias|absval }}d</span>
+                  {% elif m.faltam_dias <= 30 %}
+                    <span class="badge text-bg-warning mt-1">Vence em {{ m.faltam_dias }}d</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary mt-1">Vence em {{ m.faltam_dias }}d</span>
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            </td>
+            <td class="text-end">
+              R$ {{ m.valor_alvo|moeda_brasileira }}
+            </td>
+            <td>{{ m.data_alvo|date:"d/m/Y" }}</td>
+            <td class="text-center">{{ m.prioridade }}</td>
+            <td>
+              {% if m.status == "ativa" %}
+                <span class="badge text-bg-primary">Ativa</span>
+              {% elif m.status == "concluida" %}
+                <span class="badge text-bg-success">Concluída</span>
+              {% elif m.status == "adiada" %}
+                <span class="badge text-bg-info">Adiada</span>
+              {% elif m.status == "cancelada" %}
+                <span class="badge text-bg-dark">Cancelada</span>
+              {% else %}
+                <span class="badge text-bg-secondary">{{ m.status }}</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              <button class="btn btn-light btn-sm" title="Editar"
+                      data-bs-toggle="modal" data-bs-target="#modalEditarMeta"
+                      data-id="{{ m.id }}"
+                      data-descricao="{{ m.descricao|escape }}"
+                      data-valor="{{ m.valor_alvo }}"
+                      data-data="{{ m.data_alvo|date:'Y-m-d' }}"
+                      data-prioridade="{{ m.prioridade }}"
+                      data-status="{{ m.status }}"
+                      data-observacoes="{{ m.observacoes|default_if_none:''|escape }}">
+                <!-- Ícone lápis (SVG inline, sem depender de lib externa) -->
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                     viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-9.5 9.5a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l9.5-9.5zM11.207 2 14 4.793 12.5 6.293 9.707 3.5 11.207 2zm-2 2L2.5 10.707 1.5 13.5l2.793-1L12 6.207 9.207 4z"/>
+                </svg>
+              </button>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="text-center text-body-secondary py-4">
+              Nenhuma meta encontrada.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+
+      <tfoot>
+        <tr class="table-light">
+          <th class="text-end">Total (filtro):</th>
+          <th class="text-end">R$ {{ total_valor_filtro|moeda_brasileira }}</th>
+          <th colspan="4"></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  {% if page_obj.paginator.num_pages > 1 %}
+    <nav aria-label="Paginação">
+      <ul class="pagination">
+        <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+          <a class="page-link" href="?q={{ busca }}&status={{ status_sel }}&page={{ page_obj.previous_page_number }}">Anterior</a>
+        </li>
+        {% for num in page_obj.paginator.page_range %}
+          {% if num == page_obj.number %}
+            <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+          {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+            <li class="page-item">
+              <a class="page-link" href="?q={{ busca }}&status={{ status_sel }}&page={{ num }}">{{ num }}</a>
+            </li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+          <a class="page-link" href="?q={{ busca }}&status={{ status_sel }}&page={{ page_obj.next_page_number }}">Próxima</a>
+        </li>
+      </ul>
+    </nav>
+  {% endif %}
+
+</div>
+
+<!-- Modal: Nova Meta -->
+<div class="modal fade" id="modalNovaMeta" tabindex="-1" aria-labelledby="modalNovaMetaLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{% url 'planejamento:metas_list' %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalNovaMetaLabel">Adicionar meta</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Descrição</label>
+            {{ form.descricao }}
+            {% if form.descricao.errors %}<div class="text-danger small">{{ form.descricao.errors }}</div>{% endif %}
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">Valor-alvo</label>
+              {{ form.valor_alvo }}
+              {% if form.valor_alvo.errors %}<div class="text-danger small">{{ form.valor_alvo.errors }}</div>{% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Data-alvo</label>
+              {{ form.data_alvo }}
+              {% if form.data_alvo.errors %}<div class="text-danger small">{{ form.data_alvo.errors }}</div>{% endif %}
+            </div>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-6">
+              <label class="form-label">Prioridade</label>
+              {{ form.prioridade }}
+              <div class="form-text">Maior número = maior prioridade</div>
+              {% if form.prioridade.errors %}<div class="text-danger small">{{ form.prioridade.errors }}</div>{% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Status</label>
+              {{ form.status }}
+              {% if form.status.errors %}<div class="text-danger small">{{ form.status.errors }}</div>{% endif %}
+            </div>
+          </div>
+          <div class="mt-2">
+            <label class="form-label">Observações</label>
+            {{ form.observacoes }}
+            {% if form.observacoes.errors %}<div class="text-danger small">{{ form.observacoes.errors }}</div>{% endif %}
+          </div>
+          {% if form.non_field_errors %}
+            <div class="alert alert-danger mt-3">{{ form.non_field_errors }}</div>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar meta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Editar Meta -->
+<div class="modal fade" id="modalEditarMeta" tabindex="-1" aria-labelledby="modalEditarMetaLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <form id="formEditarMeta" method="post" action="#">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalEditarMetaLabel">Editar meta</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Descrição</label>
+            {{ form.descricao }}
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">Valor-alvo</label>
+              {{ form.valor_alvo }}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Data-alvo</label>
+              {{ form.data_alvo }}
+            </div>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-6">
+              <label class="form-label">Prioridade</label>
+              {{ form.prioridade }}
+              <div class="form-text">Maior número = maior prioridade</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Status</label>
+              {{ form.status }}
+            </div>
+          </div>
+          <div class="mt-2">
+            <label class="form-label">Observações</label>
+            {{ form.observacoes }}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Reabre a modal de criação se houver erros nela
+  document.addEventListener("DOMContentLoaded", function() {
+    const mustOpen = {{ open_modal|yesno:"true,false" }};
+    if (mustOpen) {
+      const modalEl = document.getElementById('modalNovaMeta');
+      if (modalEl) {
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+      }
+    }
+  });
+
+  // Preenchimento da modal de edição com data-* do botão
+  const modalEditar = document.getElementById('modalEditarMeta');
+  if (modalEditar) {
+    modalEditar.addEventListener('show.bs.modal', function (event) {
+      const button = event.relatedTarget;
+      if (!button) return;
+
+      const id = button.getAttribute('data-id');
+      const descricao = button.getAttribute('data-descricao') || '';
+      const valor = button.getAttribute('data-valor') || '';
+      const dataAlvo = button.getAttribute('data-data') || '';
+      const prioridade = button.getAttribute('data-prioridade') || '';
+      const status = button.getAttribute('data-status') || '';
+      const observacoes = button.getAttribute('data-observacoes') || '';
+
+      // Define a action do form para a rota de edição
+      const form = document.getElementById('formEditarMeta');
+      if (form) {
+        form.action = "{% url 'planejamento:meta_editar' pk='00000000-0000-0000-0000-000000000000' %}".replace('00000000-0000-0000-0000-000000000000', id);
+      }
+
+      // Campos: como ambos os modais usam os widgets do mesmo form,
+      // precisamos selecionar pelo "name" padrão do Django form.
+      // (Pode haver múltiplos inputs com mesmo name na página; por isso, limitamos a busca ao form de edição.)
+      const q = (sel) => form.querySelector(sel);
+
+      // Texto
+      const inputDesc = q('input[name="descricao"]');
+      if (inputDesc) inputDesc.value = descricao;
+
+      // Número/Decimal
+      const inputValor = q('input[name="valor_alvo"]');
+      if (inputValor) inputValor.value = valor;
+
+      // Data (YYYY-MM-DD)
+      const inputData = q('input[name="data_alvo"]');
+      if (inputData) inputData.value = dataAlvo;
+
+      // Prioridade
+      const inputPrio = q('input[name="prioridade"]');
+      if (inputPrio) inputPrio.value = prioridade;
+
+      // Select status
+      const selectStatus = q('select[name="status"]');
+      if (selectStatus) selectStatus.value = status;
+
+      // Observações (textarea)
+      const textareaObs = q('textarea[name="observacoes"]');
+      if (textareaObs) textareaObs.value = observacoes;
+    });
+  }
+</script>
+{% endblock %}

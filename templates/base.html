@@ -78,6 +78,16 @@
           </ul>
         </li>
 
+        <!-- Planejamento -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="planejDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Planejamento
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="planejDropdown">
+            <li><a class="dropdown-item" href="{% url 'planejamento:metas_list' %}">Metas</a></li>
+          </ul>
+        </li>
+
         <!-- Classificação (inbox de categorias) -->
         <li class="nav-item">
           <a class="nav-link" href="{% url 'classificacao_gastos' %}">Classificação</a>

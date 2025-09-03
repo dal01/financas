@@ -9,7 +9,7 @@ from conta_corrente.views.transacao_toggle_membro import transacao_toggle_membro
 app_name = "conta_corrente"
 
 urlpatterns = [
-    path("", listar_contas, name="home"),
+    path("", resumo_mensal, name="home"),
     path("contas/", listar_contas, name="contas_lista"),
     path("transacoes/", listar_transacoes, name="transacoes_lista"),
     path("transacoes/<int:pk>/toggle-oculta/", toggle_oculta_transacao, name="transacao_toggle_oculta"),
