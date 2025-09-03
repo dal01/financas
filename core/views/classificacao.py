@@ -69,11 +69,23 @@ def _parse_busca(queryset, busca: str, campos: Iterable[str]):
     return queryset
 
 
-def _ordenar(qs, default: str = "-data"):
+def _ordenar(qs, default: str | Iterable[str] = "-data"):
     try:
+        # já é lista/tupla?
+        if isinstance(default, (list, tuple)):
+            return qs.order_by(*default)
+
+        # string com vírgulas? quebra em partes
+        if isinstance(default, str) and "," in default:
+            partes = [p.strip() for p in default.split(",") if p.strip()]
+            if partes:
+                return qs.order_by(*partes)
+
+        # string simples
         return qs.order_by(default)
     except Exception:
         return qs
+
 
 
 def _filtrar_periodo(qs, data_ini: Optional[str], data_fim: Optional[str], campo_data: str):
@@ -97,6 +109,34 @@ def _filtrar_periodo(qs, data_ini: Optional[str], data_fim: Optional[str], campo
             qs = qs.filter(**{f"{prefix}__lte": data_fim})
         except Exception:
             pass
+    return qs
+
+
+# ====== Helpers para competência da fatura (cartão) ======
+def _primeiro_dia_do_mes(d: date) -> date:
+    return date(d.year, d.month, 1)
+
+def _parse_data(s: Optional[str]) -> Optional[date]:
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+def _filtrar_periodo_cartao_por_fatura(qs, data_ini: Optional[str], data_fim: Optional[str]):
+    """
+    Aplica período usando a competência da fatura (YYYY-MM-01), não a data da compra.
+    Model: FaturaCartao.competencia é DateField (1º dia do mês).
+    """
+    d1 = _parse_data(data_ini)
+    d2 = _parse_data(data_fim)
+    if d1:
+        d1 = _primeiro_dia_do_mes(d1)
+        qs = qs.filter(fatura__competencia__gte=d1)
+    if d2:
+        d2 = _primeiro_dia_do_mes(d2)
+        qs = qs.filter(fatura__competencia__lte=d2)
     return qs
 
 
@@ -170,12 +210,21 @@ def classificacao(request: HttpRequest) -> HttpResponse:
     """
     Filtros: fonte, período (data_ini/data_fim), categoria_id (macro), subcategoria_id, busca, ordering.
     Renderiza macro sempre visível; sub sempre visível com subtotal; collapse nos itens (Bootstrap).
+
+    OBS: Para 'cartao', o período é aplicado pela **competência da fatura** (não pela data da compra).
     """
     fonte = (request.GET.get("fonte") or "cc").lower().strip()
     busca = (request.GET.get("busca") or "").strip()
     categoria_id = request.GET.get("categoria_id")
     subcategoria_id = request.GET.get("subcategoria_id")
-    ordering = (request.GET.get("ordering") or "-data").strip()
+
+    # Ordenação padrão:
+    # - CC: por data do movimento
+    # - Cartão: por competência da fatura e, em seguida, data do lançamento
+    if fonte == "cartao":
+        ordering = (request.GET.get("ordering") or "-fatura__competencia,-data").strip()
+    else:
+        ordering = (request.GET.get("ordering") or "-data").strip()
 
     # -----------------------
     # Período padrão: de 1º jan até hoje
@@ -236,7 +285,9 @@ def classificacao(request: HttpRequest) -> HttpResponse:
     # ---------- Cartão de Crédito ----------
     qs = Lancamento.objects.all()
     qs = _apenas_visiveis_qs(qs)
-    qs = _filtrar_periodo(qs, data_ini, data_fim, LC_COL_DATA)
+
+    # >>> filtro por **competência da fatura** (não pela data da compra)
+    qs = _filtrar_periodo_cartao_por_fatura(qs, data_ini, data_fim)
 
     if categoria_id is not None and categoria_id != "":
         if categoria_id == "0":
