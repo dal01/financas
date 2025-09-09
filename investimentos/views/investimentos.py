@@ -17,7 +17,19 @@ def investimentos_list(request):
         )
         .order_by("instituicao__nome", "nome")
     )
-    return render(request, "investimentos/lista.html", {"investimentos": qs})
+
+    # soma dos últimos saldos de cada investimento
+    total_geral = 0
+    for inv in qs:
+        ultimo = inv.saldo_mais_recente
+        if ultimo:
+            total_geral += ultimo.valor
+
+    return render(
+        request,
+        "investimentos/lista.html",
+        {"investimentos": qs, "total_geral": total_geral},
+    )
 
 
 @require_http_methods(["GET"])
@@ -25,7 +37,7 @@ def investimento_detalhe(request, pk: int):
     inv = get_object_or_404(
         Investimento.objects.select_related("instituicao", "membro"), pk=pk
     )
-    saldos = inv.saldos.all()  # ordenado via Meta
+    saldos = inv.saldos.all()
     form = SaldoInvestimentoForm()
     return render(
         request,

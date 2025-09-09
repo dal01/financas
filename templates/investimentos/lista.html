@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load formatadores %}
+{% load moeda_brasileira from formatadores %}
 
 {% block content %}
 <div class="container py-4">
@@ -23,10 +23,15 @@
           <td>{{ inv.instituicao.nome }}</td>
           <td>{{ inv.nome }}</td>
           <td>{{ inv.membro }}</td>
-          <td class="text-end">{% if ultimo %}{{ ultimo.valor|moeda_brasileira }}{% else %}—{% endif %}</td>
-          <td class="text-end">{% if ultimo %}{{ ultimo.data|date:"d/m/Y" }}{% else %}—{% endif %}</td>
           <td class="text-end">
-            <a class="btn btn-outline-primary btn-sm" href="{% url 'investimentos:investimento_detalhe' inv.pk %}">Detalhes</a>
+            {% if ultimo %}{{ ultimo.valor|moeda_brasileira }}{% else %}—{% endif %}
+          </td>
+          <td class="text-end">
+            {% if ultimo %}{{ ultimo.data|date:"d/m/Y" }}{% else %}—{% endif %}
+          </td>
+          <td class="text-end">
+            <a class="btn btn-outline-primary btn-sm"
+               href="{% url 'investimentos:investimento_detalhe' inv.pk %}">Detalhes</a>
           </td>
         </tr>
         {% endwith %}
@@ -34,6 +39,16 @@
         <tr><td colspan="6" class="text-center text-muted py-4">Nenhum investimento.</td></tr>
       {% endfor %}
       </tbody>
+
+      {% if investimentos %}
+      <tfoot>
+        <tr class="fw-semibold">
+          <td colspan="3" class="text-end">Total</td>
+          <td class="text-end">{{ total_geral|moeda_brasileira }}</td>
+          <td colspan="2"></td>
+        </tr>
+      </tfoot>
+      {% endif %}
     </table>
   </div>
 </div>
