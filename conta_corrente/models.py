@@ -8,11 +8,7 @@ import re
 # conta_corrente/models.py
 from django.db import models
 from core.models import Membro
-from core.models import InstituicaoFinanceira, Categoria
-
-# conta_corrente/models.py
-from django.db import models
-from core.models import Membro, InstituicaoFinanceira
+from core.models import InstituicaoFinanceira, Categoria, Membro
 
 
 class Conta(models.Model):
@@ -243,3 +239,30 @@ class RegraMembro(models.Model):
         elif self.tipo_valor == "menor":
             return v < alvo
         return False
+
+# -------------------------------------------
+# Saldo diário nominal (dinheiro “de verdade”)
+# -------------------------------------------
+class Saldo(models.Model):
+    conta = models.ForeignKey(
+        Conta,
+        on_delete=models.CASCADE,
+        related_name="saldos",
+    )
+    data = models.DateField(db_index=True)
+    valor = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        ordering = ["-data", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["conta", "data"],
+                name="uniq_saldo_por_conta_e_data",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["conta", "data"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.conta} @ {self.data}: {self.valor}"

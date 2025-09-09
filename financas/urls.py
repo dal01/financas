@@ -23,4 +23,6 @@ urlpatterns = [
     
     # Planejamento
     path("planejamento/", include("planejamento.urls")),
+    
+    path("investimentos/", include("investimentos.urls")),
 ]

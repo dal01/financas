@@ -34,6 +34,7 @@
             aria-controls="navMain" aria-expanded="false" aria-label="Alternar navegação">
       <span class="navbar-toggler-icon"></span>
     </button>
+
     <div id="navMain" class="collapse navbar-collapse">
       <ul class="navbar-nav me-auto">
 
@@ -91,6 +92,21 @@
         <!-- Classificação (inbox de categorias) -->
         <li class="nav-item">
           <a class="nav-link" href="{% url 'classificacao_gastos' %}">Classificação</a>
+        </li>
+
+        <!-- Investimentos -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="investDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Investimentos
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="investDropdown">
+            <li>
+              <a class="dropdown-item" href="{% url 'investimentos:investimentos_list' %}">
+                Lista de Investimentos
+              </a>
+            </li>
+            {# Ex.: no futuro, adicionar: <li><a class="dropdown-item" href="{% url 'investimentos:resumo_patrimonio' %}">Resumo de Patrimônio</a></li> #}
+          </ul>
         </li>
 
       </ul>

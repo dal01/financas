@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% load static %}
+{% load formatadores %}
+
+{% block content %}
+<div class="container py-4">
+
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-3 gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <h1 class="h4 mb-0">Parcelados</h1>
+      {% if debug_data %}
+        <span class="badge text-bg-warning">debug on</span>
+      {% endif %}
+    </div>
+
+    <form class="d-flex gap-2 flex-wrap" method="get" action="">
+      <input type="date" class="form-control" name="data_ini" value="{{ data_ini|date:'Y-m-d' }}">
+      <input type="date" class="form-control" name="data_fim" value="{{ data_fim|date:'Y-m-d' }}">
+      <input type="search" class="form-control" name="busca" placeholder="Buscar descrição" value="{{ busca }}">
+      {% if want_debug %}
+        <input type="hidden" name="debug" value="1">
+      {% endif %}
+      <button class="btn btn-primary">Filtrar</button>
+      {% if not want_debug %}
+        <a class="btn btn-outline-warning" href="?data_ini={{ data_ini|date:'Y-m-d' }}&data_fim={{ data_fim|date:'Y-m-d' }}&busca={{ busca }}&debug=1">Modo debug</a>
+      {% else %}
+        <a class="btn btn-outline-secondary" href="?data_ini={{ data_ini|date:'Y-m-d' }}&data_fim={{ data_fim|date:'Y-m-d' }}&busca={{ busca }}">Sair do debug</a>
+      {% endif %}
+    </form>
+  </div>
+
+  {% if debug_data %}
+    <div class="card border-warning mb-3">
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-3">
+          <div><strong>Total QS:</strong> {{ debug_data.total_qs }}</div>
+          <div><strong>Candidatos:</strong> {{ debug_data.total_candidatos }}</div>
+          <div><strong>Não candidatos:</strong> {{ debug_data.total_nao_candidatos }}</div>
+          <div><strong>Buckets:</strong> {{ debug_data.total_buckets }}</div>
+          <div><strong>Grupos:</strong> {{ debug_data.total_grupos }}</div>
+          <div><strong>Tolerância:</strong> R$ {{ debug_data.tolerancia_valor }}</div>
+        </div>
+
+        <details class="mt-3">
+          <summary class="fw-semibold">Amostras de candidatos (máx 50)</summary>
+          <div class="table-responsive mt-2">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>ID</th><th>Data</th><th>Valor</th><th>Cartão</th><th>Razões</th><th>Descrição</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for it in debug_data.amostras_candidatos %}
+                  <tr>
+                    <td>{{ it.id }}</td>
+                    <td>{{ it.data }}</td>
+                    <td>{{ it.valor|moeda_brasileira }}</td>
+                    <td>{{ it.cartao }}</td>
+                    <td>
+                      {% for r in it.reasons %}
+                        <span class="badge text-bg-light me-1">{{ r }}</span>
+                      {% endfor %}
+                    </td>
+                    <td class="small">{{ it.desc }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="6" class="text-muted">Sem candidatos na amostra.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="mt-2">
+          <summary class="fw-semibold">Amostras de não-candidatos (máx 20)</summary>
+          <div class="table-responsive mt-2">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>ID</th><th>Data</th><th>Valor</th><th>Cartão</th><th>Descrição</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for it in debug_data.amostras_nao_candidatos %}
+                  <tr>
+                    <td>{{ it.id }}</td>
+                    <td>{{ it.data }}</td>
+                    <td>{{ it.valor|moeda_brasileira }}</td>
+                    <td>{{ it.cartao }}</td>
+                    <td class="small">{{ it.desc }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="5" class="text-muted">Sem não-candidatos na amostra.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="mt-2">
+          <summary class="fw-semibold">Buckets TOP (máx 20)</summary>
+          <div class="table-responsive mt-2">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Data</th><th>Parc. total</th><th>Qtd. itens</th><th>IDs (top 10)</th><th>Desc. base</th><th>cartao_id</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for b in debug_data.buckets_top %}
+                  <tr>
+                    <td>{{ b.data }}</td>
+                    <td>{{ b.parcela_total|default:"—" }}</td>
+                    <td>{{ b.qtd_itens }}</td>
+                    <td class="small">{{ b.ids|join:", " }}</td>
+                    <td class="small">{{ b.desc_base }}</td>
+                    <td>{{ b.cartao_id|default:"—" }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="6" class="text-muted">Sem buckets.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if grupos_ctx %}
+    <div class="accordion" id="accParcelados">
+      {% for g, itens in grupos_ctx %}
+        <div class="accordion-item mb-2">
+          <h2 class="accordion-header" id="h{{ g.group_id }}">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c{{ g.group_id }}" aria-expanded="false" aria-controls="c{{ g.group_id }}">
+              <div class="w-100 d-flex flex-wrap align-items-center gap-3">
+                <span class="badge text-bg-secondary">{{ g.data_compra|date:"d/m/Y" }}</span>
+                <strong class="flex-grow-1">{{ g.desc_base }}</strong>
+
+                {% if g.parcela_total %}
+                  <span class="text-muted">Parcelas: {{ g.qtd_parcelas }}/{{ g.parcela_total }}</span>
+                {% else %}
+                  <span class="text-muted">Parcelas detectadas: {{ g.qtd_parcelas }}</span>
+                {% endif %}
+
+                <span class="text-muted">
+                  Parcela (média): <span class="fw-semibold">{{ g.valor_parcela_medio|moeda_brasileira }}</span>
+                </span>
+
+                <span class="ms-auto">
+                  <span class="text-muted" style="font-size:.95rem;">Total compra:</span>
+                  <span class="fw-semibold" style="opacity:.8">{{ g.valor_total_compra|moeda_brasileira }}</span>
+                </span>
+              </div>
+            </button>
+          </h2>
+
+          <div id="c{{ g.group_id }}" class="accordion-collapse collapse" aria-labelledby="h{{ g.group_id }}" data-bs-parent="#accParcelados">
+            <div class="accordion-body">
+
+              <!-- Ações em massa -->
+              <form class="row g-2 align-items-end mb-3" method="post" action="{% url 'cartao_credito:parcelados_acao' %}">
+                {% csrf_token %}
+                <input type="hidden" name="group_id" value="{{ g.group_id }}">
+                <input type="hidden" name="data_ini" value="{{ data_ini|date:'Y-m-d' }}">
+                <input type="hidden" name="data_fim" value="{{ data_fim|date:'Y-m-d' }}">
+                <input type="hidden" name="busca" value="{{ busca }}">
+                {% if want_debug %}<input type="hidden" name="debug" value="1">{% endif %}
+
+                <div class="col-md-5">
+                  <label class="form-label">Atribuir membros (substituir)</label>
+                  <select class="form-select" name="membros_ids" multiple size="4">
+                    {% for m in membros %}
+                      <option value="{{ m.id }}">{{ m.nome }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="col-md-5">
+                  <label class="form-label">Categoria/Subcategoria</label>
+                  <select class="form-select" name="categoria_id">
+                    <option value="">-- manter --</option>
+                    {% for macro in categorias %}
+                      {% if macro.is_macro %}
+                        <optgroup label="{{ macro.nome }}">
+                          {% for sub in macro.subcategorias.all %}
+                            <option value="{{ sub.id }}">{{ sub.nome }}</option>
+                          {% endfor %}
+                          <option value="{{ macro.id }}">{{ macro.nome }} (macro)</option>
+                        {% endif %}
+                      {% endfor %}
+                  </select>
+                </div>
+
+                <div class="col-md-2 d-flex gap-2">
+                  <button class="btn btn-outline-primary flex-grow-1" name="action" value="set_membros" type="submit">Aplicar membros</button>
+                  <button class="btn btn-outline-secondary flex-grow-1" name="action" value="set_categoria" type="submit">Aplicar categoria</button>
+                </div>
+              </form>
+
+              <!-- Detalhe das parcelas -->
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th style="width:120px">Data</th>
+                      <th>Descrição</th>
+                      <th style="width:120px" class="text-end">Parcela</th>
+                      <th style="width:160px" class="text-end">Valor</th>
+                      <th style="width:260px">Membros</th>
+                      <th style="width:240px">Categoria</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for l in itens %}
+                      <tr>
+                        <td>{{ l.data|date:"d/m/Y" }}</td>
+                        <td>
+                          {{ l.descricao }}
+                          {% if l.fatura and l.fatura.cartao %}
+                            <div class="small text-muted">
+                              {{ l.fatura.cartao.instituicao.nome }} • {{ l.fatura.cartao.bandeira|default:"—" }} • ****{{ l.fatura.cartao.cartao_final }}
+                            </div>
+                          {% endif %}
+                        </td>
+                        <td class="text-end">
+                          {% if l.parcela_num and l.parcela_total %}
+                            {{ l.parcela_num }}/{{ l.parcela_total }}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </td>
+                        <td class="text-end">{{ l.valor|moeda_brasileira }}</td>
+                        <td>
+                          {% with ms=l.membros.all %}
+                            {% if ms %}
+                              {% for m in ms %}<span class="badge text-bg-light me-1">{{ m.nome }}</span>{% endfor %}
+                            {% else %}—{% endif %}
+                          {% endwith %}
+                        </td>
+                        <td>
+                          {% if l.categoria %}
+                            {{ l.categoria }}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-info">Nenhum parcelado encontrado no período.</div>
+  {% endif %}
+</div>
+{% endblock %}

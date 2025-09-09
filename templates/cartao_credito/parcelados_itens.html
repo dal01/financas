@@ -1,0 +1,21 @@
+{% load formatadores %}
+
+{% with objetos=ids|length %}
+{% endwith %}
+
+{% for l in ids|default_if_none:list %}
+{% endfor %}
+
+{# carrega os objetos por id #}
+{% with lista=ids %}
+  {% for l in lista %}
+    {% with obj=None %}
+      {% for x in ''|center:0 %}{% endfor %}
+    {% endwith %}
+  {% endfor %}
+{% endwith %}
+
+{# Implementação simples via tag {% get_lancamentos_por_ids %} seria ideal.
+   Como fallback, fazemos uma mini consulta no próprio include via template tag personalizada,
+   mas para evitar criar tag agora, vamos renderizar diretamente com uma view que já passa os objetos.
+#}

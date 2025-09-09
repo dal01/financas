@@ -9,7 +9,7 @@ from django.db.models import Count, Max, Sum, QuerySet, F, Q
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .models import Conta, Transacao, RegraOcultacao, RegraMembro
+from .models import Conta, Transacao, RegraOcultacao, RegraMembro, Saldo
 
 
 # =============================================================================
@@ -88,7 +88,7 @@ def _regra_membro_aplica_para(regra: RegraMembro, descricao: str, valor_abs: Dec
     except Exception:
         pass
 
-    # 2) Fallback textual (bem simples; ajuste se quiser regex/etc.)
+    # 2) Fallback textual
     padrao = (getattr(regra, "padrao", "") or "").lower()
     if padrao:
         if padrao not in (descricao or "").lower():
@@ -188,6 +188,21 @@ class SinalValorFilter(admin.SimpleListFilter):
 
 
 # =============================================================================
+# INLINES
+# =============================================================================
+
+class SaldoInline(admin.TabularInline):
+    model = Saldo
+    extra = 0
+    fields = ("data", "valor")
+    ordering = ("-data",)
+    # Deixe editável aqui para ajuste rápido de um dia específico
+    # Se preferir apenas leitura, ative readonly_fields:
+    # readonly_fields = ("data", "valor")
+    show_change_link = True
+
+
+# =============================================================================
 # Conta
 # =============================================================================
 
@@ -196,27 +211,30 @@ class ContaAdmin(admin.ModelAdmin):
     list_display = (
         "instituicao",
         "numero",
-        "membro",               # NOVO
+        "membro",
         "tipo",
+        "saldo_mais_recente",
         "qtd_transacoes",
         "ultimo_mov",
         "total_mov_formatado",
         "ver_transacoes",
+        "ver_saldos",
     )
-    list_select_related = ("instituicao", "membro")  # NOVO
-    list_filter = ("tipo", "instituicao", ("membro", admin.RelatedOnlyFieldListFilter))  # NOVO
+    list_select_related = ("instituicao", "membro")
+    list_filter = ("tipo", "instituicao", ("membro", admin.RelatedOnlyFieldListFilter))
     search_fields = (
         "numero",
         "instituicao__nome",
         "instituicao__codigo",
-        "membro__nome",   # NOVO
+        "membro__nome",
     )
     ordering = ("instituicao__nome", "numero")
-    autocomplete_fields = ("instituicao", "membro")  # NOVO
+    autocomplete_fields = ("instituicao", "membro")
+    inlines = [SaldoInline]
     list_per_page = 25
     save_on_top = True
     preserve_filters = True
-    actions = ["acao_propagar_membro_para_transacoes"]  # NOVO
+    actions = ["acao_propagar_membro_para_transacoes"]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -224,6 +242,7 @@ class ContaAdmin(admin.ModelAdmin):
             _qtd=Count("transacoes"),
             _ultimo=Max("transacoes__data"),
             _total=Sum("transacoes__valor"),
+            _saldo_data=Max("saldos__data"),
         )
 
     @admin.display(description="Qtd transações", ordering="_qtd")
@@ -234,6 +253,18 @@ class ContaAdmin(admin.ModelAdmin):
     def ultimo_mov(self, obj):
         return obj._ultimo
 
+    @admin.display(description="Saldo mais recente")
+    def saldo_mais_recente(self, obj):
+        # Busca o último saldo pela data anotada
+        try:
+            ultimo = obj.saldos.filter(data=obj._saldo_data).only("valor").first()
+            if not ultimo:
+                return "—"
+            cor = "green" if ultimo.valor > 0 else ("#b00020" if ultimo.valor < 0 else "inherit")
+            return format_html('<span style="color:{};">{}</span>', cor, _fmt_brl(ultimo.valor))
+        except Exception:
+            return "—"
+
     @admin.display(description="Total mov.", ordering="_total")
     def total_mov_formatado(self, obj):
         total = obj._total or 0
@@ -243,6 +274,11 @@ class ContaAdmin(admin.ModelAdmin):
     @admin.display(description="Transações")
     def ver_transacoes(self, obj):
         url = reverse("admin:conta_corrente_transacao_changelist") + f"?conta__id__exact={obj.id}"
+        return format_html('<a class="button" href="{}">Abrir</a>', url)
+
+    @admin.display(description="Saldos")
+    def ver_saldos(self, obj):
+        url = reverse("admin:conta_corrente_saldo_changelist") + f"?conta__id__exact={obj.id}"
         return format_html('<a class="button" href="{}">Abrir</a>', url)
 
     @admin.action(description="Propagar membro da conta para TODAS as transações desta conta")
@@ -285,9 +321,9 @@ class TransacaoAdmin(admin.ModelAdmin):
         "conta_membro",
         "instituicao_nome",
         "lista_membros",
-        "oculta_badge",   # origem da ocultação
+        "oculta_badge",
         "fitid",
-        "oculta",         # flags para depurar/filtrar
+        "oculta",
         "oculta_manual",
     )
     list_select_related = ("conta", "conta__instituicao", "conta__membro")
@@ -358,7 +394,6 @@ class TransacaoAdmin(admin.ModelAdmin):
     @admin.action(description="Marcar como oculta (manual) + sincronizar")
     def acao_marcar_oculta(self, request, queryset: QuerySet[Transacao]):
         n1 = queryset.exclude(oculta_manual=True).update(oculta_manual=True)
-        # sincroniza 'oculta' com OR manual/regra; é seguro forçar True nas selecionadas
         n2 = queryset.exclude(oculta=True).update(oculta=True)
         self.message_user(request, f"{n1} marcadas manualmente; {n2} sincronizadas como ocultas.", level=messages.SUCCESS)
 
@@ -371,6 +406,14 @@ class TransacaoAdmin(admin.ModelAdmin):
             f"{n1} limpas do manual; {alteradas} tiveram 'oculta' atualizada pelas regras.",
             level=messages.SUCCESS,
         )
+
+    @admin.action(description="Limpar membros")
+    def acao_limpar_membros(self, request, queryset: QuerySet[Transacao]):
+        afetadas = 0
+        for tx in queryset.only("id").iterator(chunk_size=1000):
+            tx.membros.clear()
+            afetadas += 1
+        self.message_user(request, f"Membros limpos em {afetadas} transação(ões).", level=messages.INFO)
 
     @admin.action(description="Aplicar Regras de Membro (abs(valor))")
     def acao_aplicar_regras_membro(self, request, queryset: QuerySet[Transacao]):
@@ -494,3 +537,46 @@ class RegraMembroAdmin(admin.ModelAdmin):
         if tipo == "nenhum" or obj.valor is None:
             return "—"
         return f"{mapa.get(tipo, tipo)} {_fmt_brl(obj.valor)} (abs)"
+
+
+# =============================================================================
+# Saldo
+# =============================================================================
+
+@admin.register(Saldo)
+class SaldoAdmin(admin.ModelAdmin):
+    list_display = (
+        "data",
+        "valor_colorido",
+        "conta",
+        "instituicao_nome",
+        "conta_membro",
+    )
+    list_select_related = ("conta", "conta__instituicao", "conta__membro")
+    list_filter = (
+        ("conta", admin.RelatedOnlyFieldListFilter),
+        "conta__instituicao",
+        ("conta__membro", admin.RelatedOnlyFieldListFilter),
+        "data",
+    )
+    search_fields = ("conta__numero", "conta__instituicao__nome", "conta__membro__nome")
+    date_hierarchy = "data"
+    ordering = ("-data", "-id")
+    autocomplete_fields = ("conta",)
+    list_per_page = 50
+    save_on_top = True
+    preserve_filters = True
+
+    @admin.display(description="Instituição", ordering="conta__instituicao__nome")
+    def instituicao_nome(self, obj):
+        return obj.conta.instituicao.nome
+
+    @admin.display(description="Membro (da conta)", ordering="conta__membro__nome")
+    def conta_membro(self, obj):
+        return getattr(obj.conta.membro, "nome", "—")
+
+    @admin.display(description="Valor", ordering="valor")
+    def valor_colorido(self, obj):
+        v = obj.valor or 0
+        cls = "color:green;" if v > 0 else ("color:#b00020;" if v < 0 else "")
+        return format_html('<span style="{}">{}</span>', cls, _fmt_brl(v))

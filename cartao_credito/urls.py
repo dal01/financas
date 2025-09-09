@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import faturas as faturas_views
 from .views import resumo_mensal as resumo_views
+from .views.parcelados import parcelados_list, parcelados_acao
 
 app_name = "cartao_credito"
 
@@ -16,4 +17,8 @@ urlpatterns = [
     # Aplicar regras
     path("regras/lancamento/<int:lancamento_id>/aplicar/", faturas_views.regra_aplicar_lancamento, name="regra_aplicar_lancamento"),
     path("regras/fatura/<int:fatura_id>/aplicar/", faturas_views.regra_aplicar_fatura, name="regra_aplicar_fatura"),
+
+    # Parcelados
+    path("parcelados/", parcelados_list, name="parcelados_list"),
+    path("parcelados/acao/", parcelados_acao, name="parcelados_acao"),
 ]

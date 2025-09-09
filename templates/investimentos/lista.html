@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load formatadores %}
+
+{% block content %}
+<div class="container py-4">
+  <h1 class="h4 mb-3">Investimentos</h1>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Instituição</th>
+          <th>Nome</th>
+          <th>Membro</th>
+          <th class="text-end">Saldo</th>
+          <th class="text-end">Data</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for inv in investimentos %}
+        {% with ultimo=inv.saldo_mais_recente %}
+        <tr>
+          <td>{{ inv.instituicao.nome }}</td>
+          <td>{{ inv.nome }}</td>
+          <td>{{ inv.membro }}</td>
+          <td class="text-end">{% if ultimo %}{{ ultimo.valor|moeda_brasileira }}{% else %}—{% endif %}</td>
+          <td class="text-end">{% if ultimo %}{{ ultimo.data|date:"d/m/Y" }}{% else %}—{% endif %}</td>
+          <td class="text-end">
+            <a class="btn btn-outline-primary btn-sm" href="{% url 'investimentos:investimento_detalhe' inv.pk %}">Detalhes</a>
+          </td>
+        </tr>
+        {% endwith %}
+      {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4">Nenhum investimento.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

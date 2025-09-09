@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "conta_corrente",
     "relatorios",
     "planejamento",
+    "investimentos",
 ]
 
 # === Middleware ===
