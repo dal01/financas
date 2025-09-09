@@ -9,7 +9,7 @@
   <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <h1 class="h4 mb-0">Gastos por Categoria</h1>
 
-    <!-- Filtro de período -->
+    <!-- Filtros -->
     <form class="row g-2 align-items-end" method="get">
       <div class="col-auto">
         <label class="form-label small">Período (de)</label>
@@ -19,6 +19,17 @@
         <label class="form-label small">Período (até)</label>
         <input type="date" class="form-control" name="data_fim" value="{{ data_fim }}">
       </div>
+
+      <div class="col-auto">
+        <label class="form-label small">Membro</label>
+        <select class="form-select" name="membro_id">
+          <option value="">Todos</option>
+          {% for m in membros %}
+            <option value="{{ m.id }}" {% if m.id|stringformat:"s" == membro_id %}selected{% endif %}>{{ m.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
       <div class="col-auto">
         <label class="form-label small d-block invisible">_</label>
         <button class="btn btn-primary">Aplicar</button>
@@ -27,10 +38,15 @@
   </div>
 
   <!-- Total geral -->
-  <div class="mb-3">
+  <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
     <span class="badge text-bg-secondary p-2">
       Total geral (gastos normalizados): <strong>{{ total_geral|moeda_brasileira }}</strong>
     </span>
+    {% if membro_nome %}
+      <span class="badge text-bg-light border p-2">
+        Filtro de membro: <strong>{{ membro_nome }}</strong>
+      </span>
+    {% endif %}
   </div>
 
   <!-- Lista por macro -->

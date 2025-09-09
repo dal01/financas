@@ -109,6 +109,20 @@
           </ul>
         </li>
 
+        <!-- Passivos -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="passivosDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Passivos
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="passivosDropdown">
+            <li>
+              <a class="dropdown-item" href="{% url 'passivos:passivos_list' %}">
+                Lista de Passivos
+              </a>
+            </li>
+          </ul>
+        </li>
+
       </ul>
 
       {% block nav_right %}{% endblock %}

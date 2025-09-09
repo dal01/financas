@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "relatorios",
     "planejamento",
     "investimentos",
+    "passivos",
 ]
 
 # === Middleware ===
