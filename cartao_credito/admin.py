@@ -53,7 +53,7 @@ class FaturaCartaoAdmin(admin.ModelAdmin):
 # ----------------- LANÇAMENTO -----------------
 @admin.register(Lancamento)
 class LancamentoAdmin(admin.ModelAdmin):
-    list_display = ("id", "fatura", "data", "descricao", "valor", "moeda", "valor_moeda", "is_duplicado")
+    list_display = ("data", "descricao", "valor")
     list_filter = ("fatura__cartao__instituicao", "fatura__cartao__bandeira", "is_duplicado", "moeda")
     search_fields = ("descricao", "cidade", "pais", "secao", "fitid", "hash_linha")
     autocomplete_fields = ("fatura",)
