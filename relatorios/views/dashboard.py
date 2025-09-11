@@ -19,5 +19,9 @@ def dashboard(request):
         card["membro_nome"] = membro.nome  # Adiciona o nome do membro ao contexto
         cards_adultos.append(card)
 
-    contexto = {"cards": [card_geral] + cards_adultos}
+    contexto = {
+        "cards": [card_geral] + cards_adultos,
+        "data_ini": data_ini,
+        "data_fim": data_fim,
+    }
     return render(request, "relatorios/dashboard.html", contexto)

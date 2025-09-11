@@ -16,10 +16,12 @@ def relacao_receita_gasto(
     gasto_cartao = total_saidas_cartao(data_ini, data_fim, membros)
     gasto_total = gasto_cc + gasto_cartao
     saldo = receita - gasto_total
+    porcentagem = (gasto_total / receita * 100) if receita else 0
     return {
         "receita": receita,
         "gasto": gasto_total,
         "gasto_cc": gasto_cc,
         "gasto_cartao": gasto_cartao,
         "saldo": saldo,
+        "porcentagem": porcentagem,
     }

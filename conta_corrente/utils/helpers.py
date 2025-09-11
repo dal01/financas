@@ -20,6 +20,16 @@ def total_entradas(
         qs = qs.filter(conta__instituicao_id__in=list(instituicoes))
     if membros:
         qs = qs.filter(membros__id__in=list(membros))
+
+    # Debug: print transações de receita do membro Andrea
+    if membros and len(membros) == 1:
+        from core.models import Membro
+        membro = Membro.objects.filter(id=membros[0]).first()
+        if membro and membro.nome.lower() == "andrea":
+            print(f"Transações de receita para Andrea ({membro.id}):")
+            for tx in qs.order_by("-data"):
+                print(tx.valor)
+
     total = qs.aggregate(soma_receita=Sum("valor"))["soma_receita"] or Decimal("0")
     return total
 

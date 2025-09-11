@@ -3,7 +3,24 @@
 {% block content %}
 <div class="dashboard">
     <h1>Dashboard Financeiro</h1>
-    <div class="cards">
+    <form method="get" class="row g-3 mb-4">
+        <div class="col-auto">
+            <label for="data_ini" class="form-label">Início</label>
+            <input type="date" id="data_ini" name="data_ini" class="form-control" value="{{ data_ini }}">
+        </div>
+        <div class="col-auto">
+            <label for="data_fim" class="form-label">Fim</label>
+            <input type="date" id="data_fim" name="data_fim" class="form-control" value="{{ data_fim }}">
+        </div>
+        <div class="col-auto align-self-end">
+            <button type="submit" class="btn btn-primary">Filtrar</button>
+        </div>
+    </form>
+    <p class="mb-4">
+        <strong>Período:</strong>
+        {{ data_ini|date:"d/m/Y" }} a {{ data_fim|date:"d/m/Y" }}
+    </p>
+    <div class="cards d-flex flex-wrap gap-3">
         {% for card in cards %}
             {% include "relatorios/cards/receita_gasto.html" with card=card %}
         {% endfor %}
