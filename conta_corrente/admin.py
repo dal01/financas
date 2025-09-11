@@ -320,34 +320,27 @@ class TransacaoAdmin(admin.ModelAdmin):
         "conta",
         "conta_membro",
         "instituicao_nome",
-        "lista_membros",
         "oculta_badge",
-        "fitid",
+        "oculta",
+        "oculta_manual",
+        "pagamento_cartao",
+    )
+    list_editable = (
+        "pagamento_cartao",  # permite edição direta na lista
         "oculta",
         "oculta_manual",
     )
     list_select_related = ("conta", "conta__instituicao", "conta__membro")
     list_filter = (
-        ("conta", admin.RelatedOnlyFieldListFilter),
-        "conta__instituicao",
-        ("conta__membro", admin.RelatedOnlyFieldListFilter),
-        SemMembrosFilter,
-        SinalValorFilter,
-        "oculta",
-        "oculta_manual",
-        "data",
+        "conta", "pagamento_cartao", "oculta", "oculta_manual", "categoria"
     )
-    search_fields = (
-        "descricao",
-        "fitid",
-        "conta__numero",
-        "conta__instituicao__nome",
-        "conta__instituicao__codigo",
-        "conta__membro__nome",
-        "membros__nome",
-    )
+    search_fields = ("descricao", "conta__numero", "conta__instituicao__nome")
     date_hierarchy = "data"
     ordering = ("-data", "-id")
+    def data_formatada(self, obj):
+        return obj.data.strftime("%d/%m/%Y") if obj.data else "—"
+    data_formatada.short_description = "Data"
+    data_formatada.admin_order_field = "data"
     autocomplete_fields = ("conta", "membros")
     list_per_page = 50
     save_on_top = True

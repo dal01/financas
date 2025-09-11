@@ -60,6 +60,7 @@ class Transacao(models.Model):
     saldo = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     oculta = models.BooleanField(default=False, db_index=True)
     oculta_manual = models.BooleanField(default=False, db_index=True)
+    pagamento_cartao = models.BooleanField(default=False, db_index=True)
     categoria = models.ForeignKey(Categoria, null=True, blank=True, on_delete=models.SET_NULL, related_name="transacoes")
     membros = models.ManyToManyField(
         Membro,

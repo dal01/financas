@@ -1,0 +1,29 @@
+{% load formatadores %}
+<div class="card shadow-sm mb-4 border-primary" style="max-width: 400px;">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">
+            {{ card.titulo }}
+            {% if card.membro_nome %}
+                <span class="ms-2 badge bg-light text-primary">{{ card.membro_nome }}</span>
+            {% endif %}
+        </h5>
+    </div>
+    <div class="card-body">
+        <ul class="list-group list-group-flush">
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span>Receita</span>
+                <span class="fw-bold text-success">R$ {{ card.receita|moeda_brasileira }}</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span>Gasto</span>
+                <span class="fw-bold text-danger">R$ {{ card.gasto|moeda_brasileira }}</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span>Saldo</span>
+                <span class="fw-bold {% if card.saldo >= 0 %}text-success{% else %}text-danger{% endif %}">
+                    R$ {{ card.saldo|moeda_brasileira }}
+                </span>
+            </li>
+        </ul>
+    </div>
+</div>

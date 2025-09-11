@@ -140,6 +140,6 @@ class InstituicaoFinanceiraAdmin(admin.ModelAdmin):
 
 @admin.register(Membro)
 class MembroAdmin(admin.ModelAdmin):
-    list_display = ("nome",)
+    list_display = ("nome","adulto")
     search_fields = ("nome",)
-    ordering = ("nome",)
+    ordering = ("-adulto", "nome",)

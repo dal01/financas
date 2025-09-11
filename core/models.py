@@ -203,9 +203,10 @@ class InstituicaoFinanceira(models.Model):
 
 class Membro(models.Model):
     nome = models.CharField("Nome", max_length=100)
-
+    adulto = models.BooleanField(default=True)
+    
     class Meta:
-        ordering = ["nome"]
+        ordering = ["-adulto", "nome"]
 
     def __str__(self):
         return self.nome
