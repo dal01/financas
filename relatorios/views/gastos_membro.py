@@ -9,6 +9,15 @@ from core.models import Membro
 from conta_corrente.models import Conta, Transacao, RegraOcultacao
 from cartao_credito.models import Lancamento as CcLancamento
 
+from conta_corrente.utils.helpers import (
+    transacoes_visiveis,
+    transacoes_periodo,
+)
+from cartao_credito.utils.helpers import (
+    lancamentos_visiveis,
+    lancamentos_periodo,
+)
+
 
 # ----------------- helpers de datas -----------------
 def _primeiro_dia_do_mes(dt: date) -> date:
@@ -29,47 +38,6 @@ def _parse_ym(s: str) -> date | None:
     except Exception:
         pass
     return None
-
-
-# ----------------- ocultação (só p/ conta-corrente) -----------------
-def _aplicar_ocultacao(qs, incluir_ocultas: bool):
-    """
-    Remove do queryset as transações ocultas manualmente e pelas regras,
-    a menos que incluir_ocultas=True. (Somente Transacao.)
-    """
-    if incluir_ocultas:
-        return qs
-
-    # ocultas manualmente
-    qs = qs.exclude(oculta_manual=True)
-
-    # ocultas por regras (simples + regex)
-    regras = list(RegraOcultacao.objects.filter(ativo=True))
-    filtro_simples = Q()
-    tem_simples = False
-    regras_regex = []
-    for r in regras:
-        p = r.padrao
-        if r.tipo_padrao == "exato":
-            filtro_simples |= Q(descricao__iexact=p); tem_simples = True
-        elif r.tipo_padrao == "contem":
-            filtro_simples |= Q(descricao__icontains=p); tem_simples = True
-        elif r.tipo_padrao == "inicia_com":
-            filtro_simples |= Q(descricao__istartswith=p); tem_simples = True
-        elif r.tipo_padrao == "termina_com":
-            filtro_simples |= Q(descricao__iendswith=p); tem_simples = True
-        elif r.tipo_padrao == "regex":
-            regras_regex.append(r)
-
-    if tem_simples:
-        qs = qs.exclude(filtro_simples)
-    for r in regras_regex:
-        try:
-            qs = qs.exclude(descricao__iregex=r.padrao)
-        except Exception:
-            pass
-    return qs
-
 
 # ----------------- excluir “Pagto cartão crédito” do extrato CC -----------------
 _PAG_CARTAO_REGEXES = [
@@ -206,19 +174,17 @@ def gastos_por_membro(request):
         Transacao.objects
         .select_related("conta")
         .prefetch_related("membros")
-        .filter(data__gte=start, data__lt=end, valor__lt=0)  # só gastos
     )
+    qs_cc = transacoes_visiveis(qs_cc)
+    qs_cc = transacoes_periodo(qs_cc, start, end)
+    qs_cc = qs_cc.filter(valor__lt=0)  # só gastos
 
-    # filtro por conta (opcional)
     conta_id = request.GET.get("conta")
     conta = None
     if conta_id:
         conta = get_object_or_404(Conta, id=conta_id)
         qs_cc = qs_cc.filter(conta=conta)
 
-    # ocultas? + excluir pagamento de cartão
-    incluir_ocultas = request.GET.get("incluir_ocultas") == "1"
-    qs_cc = _aplicar_ocultacao(qs_cc, incluir_ocultas)
     qs_cc = _excluir_pagamentos_cartao_cc(qs_cc)
 
     linhas_cc, total_geral_cc, total_qtd_cc = _acumular_items(qs_cc, meses_labels, idx_mes, membros_cache)
@@ -229,8 +195,10 @@ def gastos_por_membro(request):
         CcLancamento.objects
         .select_related("fatura", "fatura__cartao")
         .prefetch_related("membros")
-        .filter(data__gte=start, data__lt=end, valor__lt=0)  # só gastos
     )
+    qs_cartao = lancamentos_visiveis(qs_cartao)
+    qs_cartao = lancamentos_periodo(qs_cartao, start, end)
+    qs_cartao = qs_cartao.filter(valor__lt=0)  # só gastos
 
     linhas_cartao, total_geral_cartao, total_qtd_cartao = _acumular_items(qs_cartao, meses_labels, idx_mes, membros_cache)
     totais_mes_cartao = _totais_mensais(qs_cartao, meses_labels)

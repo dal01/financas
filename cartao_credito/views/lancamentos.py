@@ -9,6 +9,11 @@ from django.shortcuts import render
 
 from core.models import Membro, InstituicaoFinanceira
 from ..models import Cartao, FaturaCartao, Lancamento
+from cartao_credito.utils.helpers import (
+    lancamentos_visiveis,
+    lancamentos_periodo,
+    lancamentos_membro,
+)
 
 
 def _parse_ym(s: Optional[str]) -> Optional[date]:
@@ -36,7 +41,7 @@ def lista_lancamentos(request):
       - Membro (titular do cartão)
       - Instituição
       - Cartão (Instituição + final + bandeira)
-    Por padrão, inicia no mês atual.
+    Por padrão, inicia no mês atual se nenhum filtro.
     """
     qs = (
         Lancamento.objects
@@ -71,13 +76,12 @@ def lista_lancamentos(request):
     if secao:
         qs = qs.filter(secao=secao)
 
+    # Use helpers para filtrar período
     if ym:
-        qs = qs.filter(fatura__competencia=ym)
+        qs = lancamentos_periodo(qs, ym, ym)
     else:
-        if ym_from:
-            qs = qs.filter(fatura__competencia__gte=ym_from)
-        if ym_to:
-            qs = qs.filter(fatura__competencia__lte=ym_to)
+        if ym_from or ym_to:
+            qs = lancamentos_periodo(qs, ym_from, ym_to)
 
     if q:
         qs = qs.filter(
@@ -85,6 +89,9 @@ def lista_lancamentos(request):
             Q(cidade__icontains=q) |
             Q(pais__icontains=q)
         )
+
+    # Use helper para ocultas
+    qs = lancamentos_visiveis(qs)
 
     qs = qs.order_by("-data", "-id")
 

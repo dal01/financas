@@ -1,7 +1,11 @@
 from datetime import date
 from django.shortcuts import render
 from django.db.models import Sum
-from cartao_credito.models import FaturaCartao, Lancamento
+from cartao_credito.models import FaturaCartao
+from cartao_credito.utils.helpers import (
+    lancamentos_visiveis,
+    lancamentos_periodo,
+)
 
 MESES_PT = [
     "", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
@@ -29,7 +33,10 @@ def resumo_mensal_cartao(request):
                 "ano": f.competencia.year,
                 "total": 0,
             }
-        total_fatura = f.lancamentos.aggregate(soma=Sum("valor"))["soma"] or 0
+        # Use helpers para filtrar lançamentos visíveis e do período
+        lancs = lancamentos_visiveis(f.lancamentos.all())
+        lancs = lancamentos_periodo(lancs, f.competencia, f.competencia)
+        total_fatura = lancs.aggregate(soma=Sum("valor"))["soma"] or 0
         meses[ym]["total"] += total_fatura
 
     # ordenado por mês

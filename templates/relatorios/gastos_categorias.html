@@ -8,34 +8,42 @@
 
   <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <h1 class="h4 mb-0">Gastos por Categoria</h1>
-
-    <!-- Filtros -->
-    <form class="row g-2 align-items-end" method="get">
-      <div class="col-auto">
-        <label class="form-label small">Período (de)</label>
-        <input type="date" class="form-control" name="data_ini" value="{{ data_ini }}">
-      </div>
-      <div class="col-auto">
-        <label class="form-label small">Período (até)</label>
-        <input type="date" class="form-control" name="data_fim" value="{{ data_fim }}">
-      </div>
-
-      <div class="col-auto">
-        <label class="form-label small">Membro</label>
-        <select class="form-select" name="membro_id">
-          <option value="">Todos</option>
-          {% for m in membros %}
-            <option value="{{ m.id }}" {% if m.id|stringformat:"s" == membro_id %}selected{% endif %}>{{ m.nome }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div class="col-auto">
-        <label class="form-label small d-block invisible">_</label>
-        <button class="btn btn-primary">Aplicar</button>
-      </div>
-    </form>
   </div>
+
+  <!-- Filtros -->
+  <form class="mb-4" method="get">
+    <div class="card shadow-sm mb-2">
+      <div class="card-body">
+        <div class="row g-2 align-items-end">
+          <div class="col-auto">
+            <label class="form-label small">Período (de)</label>
+            <input type="date" class="form-control" name="data_ini" value="{{ data_ini }}">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small">Período (até)</label>
+            <input type="date" class="form-control" name="data_fim" value="{{ data_fim }}">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small d-block">Membro</label>
+            <div class="btn-group" role="group">
+              <button type="submit" name="membro_id" value="" class="btn {% if not membro_id %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                Todos
+              </button>
+              {% for m in membros %}
+                <button type="submit" name="membro_id" value="{{ m.id }}" class="btn {% if m.id|stringformat:"s" == membro_id %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                  {{ m.nome }}
+                </button>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-auto">
+            <label class="form-label small d-block invisible">_</label>
+            <button class="btn btn-primary">Aplicar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
 
   <!-- Total geral -->
   <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">

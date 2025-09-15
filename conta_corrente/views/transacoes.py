@@ -8,6 +8,8 @@ from core.models import Membro
 from conta_corrente.models import Conta, Transacao, RegraOcultacao
 
 # nomes dos meses em pt-BR
+from conta_corrente.utils.helpers import transacoes_visiveis, transacoes_periodo
+
 MESES_PT = [
     "", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
     "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"

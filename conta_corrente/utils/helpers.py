@@ -3,6 +3,19 @@ from typing import Optional, Iterable
 from django.db.models import Sum
 from conta_corrente.models import Transacao
 
+from datetime import date, datetime
+
+def normalizar_data(d):
+    """
+    Converte uma data (str, date, datetime) para string no formato YYYY-MM-DD.
+    Retorna None se não conseguir converter.
+    """
+    if isinstance(d, (date, datetime)):
+        return d.strftime("%Y-%m-%d")
+    if isinstance(d, str):
+        return d.strip()
+    return None
+
 def total_entradas(
     data_ini: str,
     data_fim: str,
@@ -20,15 +33,6 @@ def total_entradas(
         qs = qs.filter(conta__instituicao_id__in=list(instituicoes))
     if membros:
         qs = qs.filter(membros__id__in=list(membros))
-
-    # Debug: print transações de receita do membro Andrea
-    if membros and len(membros) == 1:
-        from core.models import Membro
-        membro = Membro.objects.filter(id=membros[0]).first()
-        if membro and membro.nome.lower() == "andrea":
-            print(f"Transações de receita para Andrea ({membro.id}):")
-            for tx in qs.order_by("-data"):
-                print(tx.valor)
 
     total = qs.aggregate(soma_receita=Sum("valor"))["soma_receita"] or Decimal("0")
     return total
@@ -75,3 +79,25 @@ def total_saidas(
         else:
             total += abs(tx.valor)
     return total
+
+def transacoes_visiveis(qs=None):
+    qs = qs or Transacao.objects.all()
+    return qs.filter(oculta=False, oculta_manual=False)
+
+def transacoes_periodo(qs, data_ini, data_fim):
+    ini = normalizar_data(data_ini)
+    fim = normalizar_data(data_fim)
+    if ini:
+        qs = qs.filter(data__gte=ini)
+    if fim:
+        qs = qs.filter(data__lte=fim)
+    return qs
+
+def transacoes_membro(qs, membros=None):
+    """
+    Filtra o queryset de transações pelos membros informados.
+    Se membros for None ou vazio, retorna todas as transações.
+    """
+    if membros:
+        qs = qs.filter(membros__id__in=list(membros)).distinct()
+    return qs

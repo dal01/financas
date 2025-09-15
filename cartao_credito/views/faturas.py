@@ -12,6 +12,11 @@ from cartao_credito.models import FaturaCartao, Lancamento, Cartao
 from core.models import Membro
 
 from cartao_credito.services.regras import aplicar_regras_em_lancamento, aplicar_regras_em_queryset
+from cartao_credito.utils.helpers import (
+    lancamentos_visiveis,
+    lancamentos_periodo,
+    lancamentos_membro,
+)
 
 
 # ---------------- helpers ----------------
@@ -68,10 +73,11 @@ def faturas_list(request: HttpRequest):
     ) or Decimal("0")
 
     ids_sem_total = base.filter(total__isnull=True).values_list("id", flat=True)
+    # Use helpers para filtrar lançamentos visíveis e por período
+    lancs_sem_total = lancamentos_visiveis(Lancamento.objects.filter(fatura_id__in=ids_sem_total))
+    lancs_sem_total = lancamentos_periodo(lancs_sem_total, competencia, competencia)
     soma_lancs_sem_total = (
-        Lancamento.objects
-        .filter(fatura_id__in=ids_sem_total)
-        .aggregate(s=Coalesce(Sum("valor"), Value(Decimal("0.00"), output_field=DecimalField(max_digits=12, decimal_places=2))))
+        lancs_sem_total.aggregate(s=Coalesce(Sum("valor"), Value(Decimal("0.00"), output_field=DecimalField(max_digits=12, decimal_places=2))))
         ["s"]
     ) or Decimal("0")
 
@@ -145,6 +151,8 @@ def fatura_detalhe(request: HttpRequest, fatura_id: str):
         .prefetch_related("membros")
         .order_by("data", "id")
     )
+    # Use helper para lançamentos visíveis
+    lancs = lancamentos_visiveis(lancs)
 
     soma = lancs.aggregate(soma=Coalesce(
         Sum("valor"),
@@ -251,5 +259,6 @@ def regra_aplicar_lancamento(request: HttpRequest, lancamento_id: int):
 def regra_aplicar_fatura(request: HttpRequest, fatura_id: int):
     fatura = get_object_or_404(FaturaCartao, pk=fatura_id)
     qs = Lancamento.objects.filter(fatura=fatura).order_by("data", "id").prefetch_related("membros")
+    qs = lancamentos_visiveis(qs)
     res = aplicar_regras_em_queryset(qs)
     return JsonResponse({"ok": True, "fatura_id": fatura.id, "result": res})

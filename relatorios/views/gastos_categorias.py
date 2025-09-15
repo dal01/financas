@@ -11,87 +11,70 @@ from core.models import Membro
 from conta_corrente.models import Transacao
 from cartao_credito.models import Lancamento
 
+from conta_corrente.utils.helpers import (
+    transacoes_visiveis,
+    transacoes_periodo,
+    transacoes_membro,
+)
+from cartao_credito.utils.helpers import (
+    lancamentos_visiveis,
+    lancamentos_periodo,
+    lancamentos_membro,
+)
+
 from relatorios.utils_gastos import (
-    _has_field, _is_datetime_field, _apenas_visiveis_qs, _with_membros,
-    _filtrar_periodo, _filtrar_por_membro, _count_membros,
-    _valor_gasto_transacao, _valor_gasto_lancamento,
+    _has_field, _is_datetime_field,
+    _count_membros, _valor_gasto_transacao, _valor_gasto_lancamento,
     _macro_sub_de, _agrupar_por_categoria
 )
 
 from core.utils.tempo import periodo_padrao, valida_data
 
-# =========================
-# Configuração de campos
-# =========================
-# Conta Corrente
-TX_COL_DATA = "data"
 TX_COL_VAL = "valor"
-TX_COL_DESC = "descricao"
 TX_COL_CAT = "categoria"
-
-# Cartão de Crédito
-# >>> AQUI definimos "data da fatura" que será usada no filtro do período:
-# Use UMA das três linhas abaixo (deixe as outras comentadas):
-LC_COL_DATA = "fatura__competencia"       # mês de competência (1º dia do mês)  << recomendado para relatórios mensais
-# LC_COL_DATA = "fatura__vencimento_em"   # data de vencimento da fatura
-# LC_COL_DATA = "fatura__fechado_em"      # data de fechamento da fatura
-
 LC_COL_VAL = "valor"
-LC_COL_DESC = "descricao"
 LC_COL_CAT = "categoria"
+LC_COL_DATA = "fatura__competencia"
 
 IGNORAR_CATEGORIAS = [
     "Pagamentos de cartão",
-    "Cartão de Crédito",   # <- ignorar também essa macro
+    "Cartão de Crédito",
 ]
 _IGNORAR_SET = {n.strip().lower() for n in IGNORAR_CATEGORIAS if n}
 
-
-# =========================
-# VIEW (usa data da fatura para cartão) + filtro por membro + divisão por membros
-# =========================
 def gastos_categorias(request: HttpRequest) -> HttpResponse:
     """
     Relatório consolidado de gastos por categoria (macro e sub), somando:
       - Transação (Conta Corrente) — filtro por Transacao.data
       - Lançamento (Cartão de Crédito) — filtro por data da Fatura (LC_COL_DATA)
-
-    Filtros:
-      - Período: data_ini / data_fim (YYYY-MM-DD)
-      - Membro: membro_id (em branco = todos)
-
-    Regras:
-      - Conta-corrente: negativos viram positivos; positivos (receitas) não somam.
-      - Cartão: positivos somam; negativos (estornos) abatem.
-      - Se houver M2M 'membros', o valor é dividido igualmente pela quantidade.
     """
     # Período padrão
     data_ini_default, data_fim_default = periodo_padrao()
     data_ini = (request.GET.get("data_ini") or data_ini_default).strip()
     data_fim = (request.GET.get("data_fim") or data_fim_default).strip()
 
-    membro_id = (request.GET.get("membro_id") or "").strip()  # string
+    membro_id = (request.GET.get("membro_id") or "").strip()
     membro_nome = None
+    membros = [int(membro_id)] if membro_id else None
     if membro_id:
         try:
             membro_obj = Membro.objects.get(id=int(membro_id))
             membro_nome = membro_obj.nome
         except Exception:
-            membro_id = ""  # invalida se não achou
+            membro_id = ""
+            membros = None
 
-    # Conta Corrente (usa Transacao.data)
-    qs_tx = Transacao.objects.select_related("categoria")
-    qs_tx = _with_membros(qs_tx)                      # prefetch membros (se houver)
-    qs_tx = _apenas_visiveis_qs(qs_tx)
-    qs_tx = _filtrar_periodo(qs_tx, data_ini, data_fim, TX_COL_DATA)
-    qs_tx = _filtrar_por_membro(qs_tx, membro_id)
+    # Conta Corrente
+    qs_tx = Transacao.objects.select_related("categoria").prefetch_related("membros")
+    qs_tx = transacoes_visiveis(qs_tx)
+    qs_tx = transacoes_periodo(qs_tx, data_ini, data_fim)
+    qs_tx = transacoes_membro(qs_tx, membros)
 
-    # Cartão (usa data da Fatura definida em LC_COL_DATA)
-    qs_lc = Lancamento.objects.select_related("fatura", "categoria", "fatura__cartao")
-    qs_lc = _with_membros(qs_lc)                      # prefetch membros (se houver)
-    qs_lc = _apenas_visiveis_qs(qs_lc)
-    qs_lc = _filtrar_periodo(qs_lc, data_ini, data_fim, LC_COL_DATA)
-    qs_lc = _filtrar_por_membro(qs_lc, membro_id)
+    # Cartão de Crédito
+    qs_lc = Lancamento.objects.select_related("fatura", "categoria", "fatura__cartao").prefetch_related("membros")
+    qs_lc = lancamentos_visiveis(qs_lc)
+    qs_lc = lancamentos_periodo(qs_lc, data_ini, data_fim)
+    qs_lc = lancamentos_membro(qs_lc, membros)
 
     # Agrupar separadamente por conta das regras de normalização
     macros_tx, _ = _agrupar_por_categoria(qs_tx, "cc", TX_COL_VAL, TX_COL_CAT)
@@ -136,6 +119,4 @@ def gastos_categorias(request: HttpRequest) -> HttpResponse:
     }
     return render(request, "relatorios/gastos_categorias.html", ctx)
 
-
-# Compat com import antigo
 gastos_por_categoria = gastos_categorias

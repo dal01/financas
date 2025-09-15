@@ -10,11 +10,6 @@
       {% if conta %}
         <span class="badge text-bg-info">Conta: {{ conta.instituicao.nome }} — {{ conta.numero }}</span>
       {% endif %}
-      {% if incluir_ocultas %}
-        <span class="badge text-bg-secondary">Incluindo transações ocultas</span>
-      {% else %}
-        <span class="badge text-bg-secondary">Excluindo transações ocultas</span>
-      {% endif %}
     </div>
   </div>
 
@@ -27,14 +22,10 @@
     <div class="col-12 col-sm-auto">
       <input type="month" class="form-control" name="fim" value="{{ fim }}">
     </div>
-    <div class="col-12 col-sm-auto form-check d-flex align-items-center">
-      <input class="form-check-input" type="checkbox" id="incluir_ocultas" name="incluir_ocultas" value="1" {% if incluir_ocultas %}checked{% endif %}>
-      <label class="form-check-label ms-2" for="incluir_ocultas">Incluir ocultas</label>
-    </div>
     <div class="col-12 col-sm-auto">
       <button class="btn btn-primary">Atualizar</button>
       <a class="btn btn-outline-secondary" href="{% url 'conta_corrente:resumo_mensal' %}{% if conta %}?conta={{ conta.id }}{% endif %}">Limpar</a>
-      <a class="btn btn-outline-dark" href="?{% if conta %}conta={{ conta.id }}&amp;{% endif %}{% if inicio %}inicio={{ inicio }}&amp;{% endif %}{% if fim %}fim={{ fim }}&amp;{% endif %}{% if incluir_ocultas %}incluir_ocultas=1&amp;{% endif %}format=json">JSON</a>
+      <a class="btn btn-outline-dark" href="?{% if conta %}conta={{ conta.id }}&amp;{% endif %}{% if inicio %}inicio={{ inicio }}&amp;{% endif %}{% if fim %}fim={{ fim }}&amp;{% endif %}format=json">JSON</a>
     </div>
   </form>
 

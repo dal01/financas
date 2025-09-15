@@ -8,6 +8,10 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 
 from conta_corrente.models import Conta, Transacao, RegraOcultacao
+from conta_corrente.utils.helpers import (
+    transacoes_visiveis,
+    transacoes_periodo,
+)
 
 
 def _primeiro_dia_do_mes(dt: date) -> date:
@@ -29,43 +33,6 @@ def _parse_ym(s: str) -> date | None:
         pass
     return None
 
-def _aplicar_ocultacao(qs, incluir_ocultas: bool):
-    """
-    Retorna qs com/sem itens ocultos (oculta_manual e regras).
-    """
-    if incluir_ocultas:
-        return qs
-
-    qs = qs.exclude(oculta_manual=True)
-
-    regras = list(RegraOcultacao.objects.filter(ativo=True))
-    filtro_simples = Q()
-    tem_simples = False
-    regras_regex = []
-    for r in regras:
-        p = r.padrao
-        if r.tipo_padrao == "exato":
-            filtro_simples |= Q(descricao__iexact=p); tem_simples = True
-        elif r.tipo_padrao == "contem":
-            filtro_simples |= Q(descricao__icontains=p); tem_simples = True
-        elif r.tipo_padrao == "inicia_com":
-            filtro_simples |= Q(descricao__istartswith=p); tem_simples = True
-        elif r.tipo_padrao == "termina_com":
-            filtro_simples |= Q(descricao__iendswith=p); tem_simples = True
-        elif r.tipo_padrao == "regex":
-            regras_regex.append(r)
-
-    if tem_simples:
-        qs = qs.exclude(filtro_simples)
-    for r in regras_regex:
-        try:
-            qs = qs.exclude(descricao__iregex=r.padrao)
-        except Exception:
-            pass
-
-    return qs
-
-
 def resumo_mensal(request):
     """
     Série mensal de Entradas, Saídas e Saldo.
@@ -75,7 +42,6 @@ def resumo_mensal(request):
     Params:
       - conta=<id> (opcional; se passar, tudo se restringe a essa conta)
       - inicio=YYYY-MM & fim=YYYY-MM  (opcionais; priorizam sobre 'meses')
-      - incluir_ocultas=1 (default não incluir)
       - format=json (para JSON; padrão HTML)
     """
     qs = Transacao.objects.select_related(
@@ -102,11 +68,9 @@ def resumo_mensal(request):
         start = date(hoje.year, 1, 1)
         end = date(hoje.year + 1, 1, 1)  # exclusivo
 
-    qs = qs.filter(data__gte=start, data__lt=end)
-
-    # Ocultas?
-    incluir_ocultas = request.GET.get("incluir_ocultas") == "1"
-    qs = _aplicar_ocultacao(qs, incluir_ocultas)
+    # Use helpers para filtrar visíveis e período
+    qs = transacoes_visiveis(qs)
+    qs = transacoes_periodo(qs, start, end)
 
     # -----------------------------
     # Séries mensais (geral)
@@ -227,7 +191,6 @@ def resumo_mensal(request):
         "inicio": start.strftime("%Y-%m"),
         "fim": _add_meses(end, -1).strftime("%Y-%m"),
         "conta": conta.id if conta else None,
-        "incluir_ocultas": incluir_ocultas,
         "serie": [
             {"mes": it["mes"], "entradas": str(it["entradas"]), "saidas": str(it["saidas"]), "saldo": str(it["saldo"])}
             for it in serie
@@ -274,7 +237,6 @@ def resumo_mensal(request):
         "conta": conta,
         "inicio": payload["inicio"],
         "fim": payload["fim"],
-        "incluir_ocultas": incluir_ocultas,
         "serie": serie,
         # Resumo geral
         "totais": {

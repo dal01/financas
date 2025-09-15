@@ -16,12 +16,13 @@ def dashboard(request):
     for membro in adultos:
         card = relacao_receita_gasto(data_ini, data_fim, membros=[membro.id])
         card["titulo"] = f"Receita x Gasto - {membro.nome}"
-        card["membro_nome"] = membro.nome  # Adiciona o nome do membro ao contexto
+        card["membro_nome"] = membro.nome
         cards_adultos.append(card)
 
     contexto = {
         "cards": [card_geral] + cards_adultos,
         "data_ini": data_ini,
         "data_fim": data_fim,
+        "periodo_formatado": f"{data_ini[8:10]}/{data_ini[5:7]}/{data_ini[:4]} a {data_fim[8:10]}/{data_fim[5:7]}/{data_fim[:4]}"
     }
     return render(request, "relatorios/dashboard.html", contexto)

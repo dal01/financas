@@ -10,6 +10,13 @@ from core.models import Membro
 from conta_corrente.models import Transacao
 from cartao_credito.models import Lancamento
 
+from conta_corrente.utils.helpers import (
+    transacoes_visiveis,
+)
+from cartao_credito.utils.helpers import (
+    lancamentos_visiveis,
+)
+
 from relatorios.utils.gastos import valor_despesa_conta_corrente, valor_despesa_cartao
 from relatorios.utils.membros import (
     init_matriz, distribui_por_membros, pacote_tabela, medias_mensais_por_membro_apenas_meses_positivos
@@ -60,14 +67,13 @@ def resumo_anual(request):
     matriz_cc = init_matriz(membros)
     matriz_cartao = init_matriz(membros)
 
-    # -------- Conta Corrente (ocultas=False se existir campo) --------
+    # -------- Conta Corrente (ocultas=False) --------
     transacoes = (
         Transacao.objects
         .filter(**{f"{TRANSACAO_DATA_FIELD}__year": ano})
+        .prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
     )
-    if _has_field(Transacao, "oculta"):
-        transacoes = transacoes.filter(oculta=False)
-    transacoes = transacoes.prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
+    transacoes = transacoes_visiveis(transacoes)
 
     for t in transacoes:
         d: date | None = getattr(t, TRANSACAO_DATA_FIELD, None)
@@ -80,15 +86,14 @@ def resumo_anual(request):
         distribui_por_membros(t, val, matriz_cc, mes_idx)
         distribui_por_membros(t, val, matriz_geral, mes_idx)
 
-    # -------- Cartão (por fatura; ocultas se existir) --------
+    # -------- Cartão (por fatura; ocultas) --------
     lancs = (
         Lancamento.objects
         .select_related("fatura")
         .filter(fatura__competencia__year=ano)
+        .prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
     )
-    if _has_field(Lancamento, "oculta"):
-        lancs = lancs.filter(oculta=False)
-    lancs = lancs.prefetch_related(Prefetch(M2M_MEMBROS_FIELD))
+    lancs = lancamentos_visiveis(lancs)
 
     for l in lancs:
         if not getattr(l, "fatura", None) or not l.fatura.competencia:

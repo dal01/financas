@@ -16,10 +16,6 @@
             <button type="submit" class="btn btn-primary">Filtrar</button>
         </div>
     </form>
-    <p class="mb-4">
-        <strong>Período:</strong>
-        {{ data_ini|date:"d/m/Y" }} a {{ data_fim|date:"d/m/Y" }}
-    </p>
     <div class="cards d-flex flex-wrap gap-3">
         {% for card in cards %}
             {% include "relatorios/cards/receita_gasto.html" with card=card %}

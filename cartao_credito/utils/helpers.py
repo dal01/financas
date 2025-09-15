@@ -1,6 +1,7 @@
 from decimal import Decimal
 from typing import Optional, Iterable
 from cartao_credito.models import Lancamento
+from datetime import date, datetime
 
 def total_saidas_cartao(
     data_ini: str,
@@ -36,3 +37,44 @@ def total_saidas_cartao(
         else:
             total += lanc.valor
     return total
+
+
+def normalizar_data(d):
+    """
+    Converte uma data (str, date, datetime) para string no formato YYYY-MM-DD.
+    Retorna None se não conseguir converter.
+    """
+    if isinstance(d, (date, datetime)):
+        return d.strftime("%Y-%m-%d")
+    if isinstance(d, str):
+        return d.strip()
+    return None
+
+def lancamentos_visiveis(qs=None):
+    """
+    Retorna um queryset apenas com lançamentos não ocultos.
+    """
+    qs = qs or Lancamento.objects.all()
+    return qs.filter(oculta=False, oculta_manual=False)
+
+def lancamentos_periodo(qs, data_ini, data_fim):
+    """
+    Filtra o queryset de lançamentos pelo período informado (competência da fatura).
+    Aceita data_ini e data_fim como string (YYYY-MM-DD), date ou datetime.
+    """
+    ini = normalizar_data(data_ini)
+    fim = normalizar_data(data_fim)
+    if ini:
+        qs = qs.filter(fatura__competencia__gte=ini)
+    if fim:
+        qs = qs.filter(fatura__competencia__lte=fim)
+    return qs
+
+def lancamentos_membro(qs, membros=None):
+    """
+    Filtra o queryset de lançamentos pelos membros informados.
+    Se membros for None ou vazio, retorna todos os lançamentos.
+    """
+    if membros:
+        qs = qs.filter(membros__id__in=list(membros)).distinct()
+    return qs
