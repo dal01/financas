@@ -1,10 +1,10 @@
 from django.urls import path
-from .views import investimentos as views
+from .views.balanco import balanco, investimentos_list, investimento_detalhe
 
 app_name = "investimentos"
 
 urlpatterns = [
-    path("", views.investimentos_list, name="investimentos_list"),
-    path("<int:pk>/", views.investimento_detalhe, name="investimento_detalhe"),
-    path("<int:pk>/novo-saldo/", views.investimento_novo_saldo, name="investimento_novo_saldo"),
+    path("balanco/", balanco, name="balanco"),
+    path("", investimentos_list, name="investimentos_list"),
+    path("<int:pk>/", investimento_detalhe, name="investimento_detalhe"),  # Adicione esta linha
 ]
