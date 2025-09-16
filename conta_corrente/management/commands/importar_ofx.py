@@ -11,19 +11,21 @@ from io import BytesIO
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from django.conf import settings  # usado para DADOS_DIR
+from django.conf import settings
 from ofxparse import OfxParser
 
 from core.models import InstituicaoFinanceira, Membro
-from conta_corrente.models import Conta, Transacao
+from conta_corrente.models import Conta, Transacao, Saldo
 from conta_corrente.models import RegraMembro
 
-try:
-    from unidecode import unidecode
-except Exception:
-    # fallback simples se unidecode não estiver instalado (recomendo manter unidecode)
-    def unidecode(s: str) -> str:
-        return s
+from unidecode import unidecode
+
+
+# ---------------------------
+# Função para normalizar descrição
+# ---------------------------
+def normalizar_descricao(descricao: str) -> str:
+    return unidecode(" ".join(descricao.split()).strip().lower())
 
 
 # ---------------------------
@@ -236,63 +238,66 @@ def _aplicar_regras_membro_se_vazio(transacao: Transacao, regras_cache) -> bool:
 # Comando de importação
 # ---------------------------
 class Command(BaseCommand):
-    help = "Importa arquivos .ofx de conta corrente, evitando duplicatas pelo FITID."
+    help = "Importa arquivos .ofx de conta corrente, evitando duplicatas pelo FITID. Agora aceita pasta ou arquivo único."
 
     def add_arguments(self, parser):
-        parser.add_argument("codigo", help="Código da InstituiçãoFinanceira (ex.: bb, itau, nubank)")
-        parser.add_argument("pasta_base", help="Pasta base onde ficam os OFX. O comando procura em <pasta_base>/<codigo>.")
+        parser.add_argument("pasta_ou_arquivo", help="Pasta base OU arquivo OFX para importar.")
         parser.add_argument("--dry-run", action="store_true", help="Não grava no banco; apenas simula a importação.")
         parser.add_argument("--reset", action="store_true", help="Apaga transações existentes de cada conta antes de importar.")
 
     def handle(self, *args, **opts):
-        codigo = opts["codigo"]
+        caminho = Path(opts["pasta_ou_arquivo"])
+        if not caminho.is_absolute():
+            caminho = settings.DADOS_DIR / caminho
+        caminho = caminho.resolve()
 
-        # Resolve caminho relativo ao DADOS_DIR (consistente com PDFs)
-        pasta_base = Path(opts["pasta_base"])
-        if not pasta_base.is_absolute():
-            pasta_base = settings.DADOS_DIR / pasta_base
-        pasta_base = pasta_base.resolve()
-
-        # Pasta final onde realmente estão os OFX do banco
-        pasta = pasta_base / codigo
         dry_run = opts["dry_run"]
         do_reset = opts["reset"]
 
-        if not pasta.exists():
-            raise CommandError(f"Pasta não encontrada: {pasta}")
+        arquivos = []
+        if caminho.is_file() and caminho.suffix.lower() == ".ofx":
+            arquivos = [caminho]
+            pasta_base = caminho.parent
+        elif caminho.is_dir():
+            arquivos = sorted(caminho.rglob("*.ofx"))
+            pasta_base = caminho
+        else:
+            raise CommandError(f"Caminho não encontrado ou inválido: {caminho}")
 
-        try:
-            inst = InstituicaoFinanceira.objects.get(codigo__iexact=codigo)
-        except InstituicaoFinanceira.DoesNotExist:
-            raise CommandError(f"Inexistente: Instituição '{codigo}'")
+        if not arquivos:
+            self.stdout.write(self.style.WARNING(f"⚠ Nenhum OFX encontrado em {caminho}"))
+            return
 
-        # Inferir Membro pela pasta (ex.: .../andrea/2025)
+        # Tenta inferir InstituiçãoFinanceira pelo nome da pasta ou arquivo
+        inst = None
+        for seg in reversed(caminho.parts):
+            try:
+                inst = InstituicaoFinanceira.objects.get(codigo__iexact=seg)
+                break
+            except InstituicaoFinanceira.DoesNotExist:
+                continue
+        if not inst:
+            raise CommandError("InstituiçãoFinanceira não encontrada pelo caminho.")
+
         membro_inferido = _inferir_membro_por_pasta(pasta_base)
         if membro_inferido:
             self.stdout.write(self.style.HTTP_INFO(f"👤 Membro inferido: {membro_inferido.nome}"))
         else:
             self.stdout.write(self.style.WARNING("⚠ Nenhum membro inferido pela pasta."))
 
-        arquivos = sorted(pasta.rglob("*.ofx"))
-        if not arquivos:
-            self.stdout.write(self.style.WARNING(f"⚠ Nenhum OFX encontrado em {pasta}"))
-            return
-
         total_proc = 0
         total_novos = 0
         total_atualizados = 0
         total_pulados_sem_data = 0
         total_pulados_saldo_anterior = 0
-
         contas_resetadas: set[int] = set()
-
-        # cache de regras por performance
         regras_cache = _carregar_regras_membro()
+        novas_transacoes = []
 
-        for caminho in arquivos:
-            self.stdout.write(self.style.NOTICE(f"→ Lendo: {caminho.relative_to(pasta_base)}"))
+        for caminho_ofx in arquivos:
+            self.stdout.write(self.style.NOTICE(f"→ Lendo: {caminho_ofx.relative_to(pasta_base)}"))
 
-            raw = caminho.read_bytes()
+            raw = caminho_ofx.read_bytes()
             fixed = preprocess_ofx(raw)
             ofx = OfxParser.parse(BytesIO(fixed))
 
@@ -300,44 +305,31 @@ class Command(BaseCommand):
             contas = [c for c in contas if c is not None]
 
             for conta_ofx in contas:
-                # número/conta-id
-                numero = (
-                    (getattr(conta_ofx, "number", None) or getattr(conta_ofx, "account_id", "desconhecido"))
-                    .strip()
-                )
+                numero = str(getattr(conta_ofx, "number", None) or getattr(conta_ofx, "account_id", "desconhecido")).strip()
 
-                # tentar agência a partir de campos comuns do ofxparse (nem sempre presente)
-                agencia = None
-                for candidate in ("branch_id", "routing_number", "bank_id"):
-                    val = getattr(conta_ofx, candidate, None)
-                    if val:
-                        agencia = str(val).strip() or None
-                        break
+                # Busca apenas pelo número e instituição
+                conta = Conta.objects.filter(instituicao=inst, numero=numero).first()
+                if not conta:
+                    conta = Conta.objects.create(
+                        instituicao=inst,
+                        numero=numero,
+                        tipo="corrente",
+                        membro=membro_inferido if membro_inferido else None,
+                    )
 
-                # criar/obter conta
-                conta, created_conta = Conta.objects.get_or_create(
-                    instituicao=inst,
-                    numero=numero,
-                    agencia=agencia,
-                    defaults={
-                        "tipo": "corrente",
-                        "membro": membro_inferido if membro_inferido else None,
-                    },
-                )
+                print(f"CONTA IMPORT: id={conta.id}, instituicao={conta.instituicao_id}, numero={conta.numero!r}")
 
-                # Se a conta já existia sem membro e inferimos um, atualiza
-                if not created_conta and membro_inferido and conta.membro_id is None:
+                # Atualiza membro se necessário
+                if membro_inferido and conta.membro_id is None:
                     conta.membro = membro_inferido
                     conta.save(update_fields=["membro"])
                     self.stdout.write(self.style.SUCCESS(f"🔗 Conta {numero}: membro setado para {membro_inferido.nome}"))
 
-                # RESET por conta (uma vez)
                 if do_reset and not dry_run and conta.id not in contas_resetadas:
                     apagados, _ = Transacao.objects.filter(conta=conta).delete()
                     self.stdout.write(self.style.WARNING(f"🧹 Lançamentos apagados da conta {numero}: {apagados}"))
                     contas_resetadas.add(conta.id)
 
-                # Importa transações
                 statement = getattr(conta_ofx, "statement", None)
                 txs = statement.transactions if statement else []
                 for tx in txs:
@@ -347,10 +339,12 @@ class Command(BaseCommand):
                     if data is None:
                         total_pulados_sem_data += 1
                         continue
+                    if data.year < 2000:
+                        print(f"Transação ignorada por data inválida: {data}")
+                        continue
 
                     descricao = _compose_descricao(tx)
-
-                    # pular "Saldo Anterior"
+                    descricao_normalizada = normalizar_descricao(descricao)
                     desc_base = (getattr(tx, "memo", "") or getattr(tx, "payee", "") or getattr(tx, "name", "") or "").strip().lower()
                     if "saldo anterior" in desc_base:
                         total_pulados_saldo_anterior += 1
@@ -358,8 +352,6 @@ class Command(BaseCommand):
 
                     valor = Decimal(str(tx.amount))
                     fitid_original = getattr(tx, "id", None) or getattr(tx, "fitid", None) or ""
-
-                    # FITID estendido se colisão com data/valor diferentes
                     fitid_para_usar = fitid_original
                     if fitid_original:
                         existing = (
@@ -371,34 +363,59 @@ class Command(BaseCommand):
                         if existing and (existing.data != data or existing.valor != valor):
                             fitid_para_usar = _fitid_unique_real(fitid_original, data, valor)
                     else:
-                        # segurança extra: se, mesmo após preprocess, algo veio sem FITID
                         fitid_para_usar = _fitid_unique_real("NOFITID", data, valor)
+
+                    if data == date(2025, 8, 1):
+                        print(f"IMPORTANDO: conta={conta.id}, valor={valor}, descricao={descricao_normalizada!r}, fitid={fitid_para_usar}")
 
                     if not dry_run:
                         with transaction.atomic():
+                            # Busca por conta, data e valor
                             obj, created = Transacao.objects.update_or_create(
                                 conta=conta,
-                                fitid=fitid_para_usar,
+                                data=data,
+                                valor=valor,
                                 defaults={
-                                    "data": data,
-                                    "descricao": descricao,
-                                    "valor": valor,
+                                    "descricao": descricao_normalizada,
+                                    "fitid": fitid_para_usar,
                                 },
                             )
-
-                            # aplica regra somente se não há membros
+                            if created:
+                                print(f"CRIADA: conta={conta.id}, data={data}, valor={valor}")
+                            else:
+                                print(f"ATUALIZADA: conta={conta.id}, data={data}, valor={valor}")
                             try:
                                 _aplicar_regras_membro_se_vazio(obj, regras_cache)
                             except Exception:
-                                # não interrompe importação por eventual erro de regra
                                 pass
 
                         if created:
+                            novas_transacoes.append({
+                                "conta": conta.id,
+                                "data": data,
+                                "valor": valor,
+                                "descricao": descricao_normalizada,
+                                "fitid": fitid_para_usar,
+                            })
                             total_novos += 1
                         else:
                             total_atualizados += 1
 
                     total_proc += 1
+
+                # Importa saldo do extrato
+                if statement and hasattr(statement, "balance") and hasattr(statement, "end_date"):
+                    saldo_valor = Decimal(str(statement.balance))
+                    saldo_data = statement.end_date
+                    if isinstance(saldo_data, datetime):
+                        saldo_data = saldo_data.date()
+                    if saldo_data:
+                        if not dry_run:
+                            Saldo.objects.update_or_create(
+                                conta=conta,
+                                data=saldo_data,
+                                defaults={"valor": saldo_valor}
+                            )
 
         resumo = (
             f"✅ Processadas: {total_proc} | Novas: {total_novos} | Atualizadas: {total_atualizados}"
@@ -411,3 +428,16 @@ class Command(BaseCommand):
             resumo += f" | Ignoradas 'Saldo Anterior': {total_pulados_saldo_anterior}"
 
         self.stdout.write(self.style.SUCCESS(resumo))
+
+        print("Transações novas criadas nesta importação:")
+        for tx in novas_transacoes:
+            print(tx)
+
+        # Checagem de duplicidade
+        for tx in novas_transacoes:
+            count = Transacao.objects.filter(
+                conta_id=tx["conta"],
+                data=tx["data"],
+                valor=tx["valor"],
+            ).count()
+            assert count <= 1, f"Duplicidade detectada! {tx}"

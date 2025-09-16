@@ -62,6 +62,7 @@ class Transacao(models.Model):
     oculta_manual = models.BooleanField(default=False, db_index=True)
     pagamento_cartao = models.BooleanField(default=False, db_index=True)
     categoria = models.ForeignKey(Categoria, null=True, blank=True, on_delete=models.SET_NULL, related_name="transacoes")
+    
     membros = models.ManyToManyField(
         Membro,
         blank=True,
@@ -70,6 +71,7 @@ class Transacao(models.Model):
     )
     class Meta:
         ordering = ["-data"]
+        unique_together = ("conta", "data", "valor")
 
     def __str__(self):
         return f"{self.data} | {self.descricao} | {self.valor}"
