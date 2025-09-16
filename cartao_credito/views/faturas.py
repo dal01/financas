@@ -66,22 +66,26 @@ def faturas_list(request: HttpRequest):
             Q(cartao__cartao_final__icontains=q)
         )
 
+    # 1. Total do mês (PDF)
     soma_totais_pdf = (
         base.filter(total__isnull=False)
         .aggregate(s=Coalesce(Sum("total"), Value(Decimal("0.00"), output_field=DecimalField(max_digits=12, decimal_places=2))))
         ["s"]
     ) or Decimal("0")
 
-    ids_sem_total = base.filter(total__isnull=True).values_list("id", flat=True)
-    # Use helpers para filtrar lançamentos visíveis e por período
-    lancs_sem_total = lancamentos_visiveis(Lancamento.objects.filter(fatura_id__in=ids_sem_total))
-    lancs_sem_total = lancamentos_periodo(lancs_sem_total, competencia, competencia)
-    soma_lancs_sem_total = (
-        lancs_sem_total.aggregate(s=Coalesce(Sum("valor"), Value(Decimal("0.00"), output_field=DecimalField(max_digits=12, decimal_places=2))))
-        ["s"]
-    ) or Decimal("0")
+    # 2. Total do mês (calculado)
+    lancs_mes = lancamentos_visiveis(Lancamento.objects.filter(fatura__competencia=competencia))
 
-    soma_total_calculado = soma_totais_pdf + soma_lancs_sem_total
+    from collections import defaultdict
+
+    acumulados = defaultdict(Decimal)
+    for l in lancs_mes.order_by("fatura_id", "data", "id"):
+        acumulados[l.fatura_id] += l.valor or Decimal("0")
+
+    soma_total_calculado = lancs_mes.aggregate(
+        s=Coalesce(Sum("valor"), Value(Decimal("0.00"), output_field=DecimalField(max_digits=12, decimal_places=2)))
+    )["s"] or Decimal("0")
+
     total_faturas = base.count()
 
     meses_disponiveis = sorted(
@@ -104,13 +108,14 @@ def faturas_list(request: HttpRequest):
         final = (cartao.cartao_final or "")[-8:]
         total_display = f.total if f.total is not None else f.total_calc
 
+        # Ajuste aqui para mostrar MM/YY
+        competencia_mes = f.competencia.strftime("%m/%y") if f.competencia else "-"
+
         g = grupos.setdefault(membro_nome, {"linhas": [], "total": Decimal("0")})
         g["linhas"].append({
             "bandeira": bandeira,
             "final": final,
-            "competencia_br": data_br(f.competencia.replace(day=1)) if f.competencia else "-",
-            "fechamento_br": data_br(f.fechado_em),
-            "vencimento_br": data_br(f.vencimento_em),
+            "competencia_mes": competencia_mes,
             "total_br": moeda_br(total_display),
             "_total_dec": total_display or Decimal("0"),
             "id": f.pk,
@@ -130,8 +135,8 @@ def faturas_list(request: HttpRequest):
     context = {
         "competencia": competencia.strftime("%Y-%m"),
         "card_qtd_faturas": total_faturas,
-        "card_soma": moeda_br(soma_total_calculado),
-        "card_pdf": moeda_br(soma_totais_pdf),
+        "card_soma": moeda_br(soma_total_calculado),  # total dos lançamentos
+        "card_pdf": moeda_br(soma_totais_pdf),        # total dos PDFs
         "grupos_membro": grupos_membro,
         "meses_disponiveis": [d.strftime("%Y-%m") for d in meses_disponiveis],
         "q": q,

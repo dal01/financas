@@ -76,9 +76,11 @@ def gastos_categorias(request: HttpRequest) -> HttpResponse:
     qs_lc = lancamentos_periodo(qs_lc, data_ini, data_fim)
     qs_lc = lancamentos_membro(qs_lc, membros)
 
-    # Agrupar separadamente por conta das regras de normalização
-    macros_tx, _ = _agrupar_por_categoria(qs_tx, "cc", TX_COL_VAL, TX_COL_CAT)
-    macros_lc, _ = _agrupar_por_categoria(qs_lc, "cartao", LC_COL_VAL, LC_COL_CAT)
+    # Corrige o rateio: só divide se filtrando por membro específico
+    ratear = membros is not None  # membros=None significa "todos", não rateia
+
+    macros_tx, _ = _agrupar_por_categoria(qs_tx, "cc", TX_COL_VAL, TX_COL_CAT, ratear=ratear)
+    macros_lc, _ = _agrupar_por_categoria(qs_lc, "cartao", LC_COL_VAL, LC_COL_CAT, ratear=ratear)
 
     # Merge das duas fontes
     def _merge(macros_a: List[Dict], macros_b: List[Dict]) -> Tuple[List[Dict], Decimal]:
@@ -101,10 +103,11 @@ def gastos_categorias(request: HttpRequest) -> HttpResponse:
         out: List[Dict] = []
         for m in idx.values():
             subs = list(m["subs"].values())
-            subs.sort(key=lambda x: (x["total"], x["nome"]), reverse=True)
-            out.append({"id": m["id"], "nome": m["nome"], "total": m["total"], "subcats": subs})
-        out.sort(key=lambda x: (x["total"], x["nome"]), reverse=True)
-        return out, total_geral
+            subs.sort(key=lambda x: x["nome"].lower())  # Ordena subcategorias alfabeticamente
+            out.append({"id": m["id"], "nome": m["nome"], "total": float(m["total"]), "subcats": subs})
+        out.sort(key=lambda x: x["nome"].lower())  # Ordena categorias alfabeticamente
+
+        return out, float(total_geral)
 
     categorias, total_geral = _merge(macros_tx, macros_lc)
 

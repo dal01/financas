@@ -121,7 +121,7 @@ def _count_membros(obj) -> int:
     return 0
 
 
-def _valor_gasto_transacao(obj, col_val: str) -> Decimal:
+def _valor_gasto_transacao(obj, col_val: str, ratear: bool = True) -> Decimal:
     """
     Calcula o gasto normalizado de uma Transacao.
     - Conta-corrente: valores negativos = despesa (→ positivo), positivos (receita) = 0.
@@ -132,13 +132,13 @@ def _valor_gasto_transacao(obj, col_val: str) -> Decimal:
     if v < 0:
         qtd = _count_membros(obj)
         gasto = abs(v)
-        if qtd > 0:
+        if ratear and qtd > 0:
             gasto = gasto / qtd
         return gasto
     return Decimal("0")
 
 
-def _valor_gasto_lancamento(obj, col_val: str) -> Decimal:
+def _valor_gasto_lancamento(obj, col_val: str, ratear: bool = True) -> Decimal:
     """
     Calcula o gasto normalizado de um Lancamento.
     - Cartão: positivos = despesa; negativos = estorno (abate total).
@@ -148,7 +148,7 @@ def _valor_gasto_lancamento(obj, col_val: str) -> Decimal:
     gasto = Decimal(v)
 
     qtd = _count_membros(obj)
-    if qtd > 0:
+    if ratear and qtd > 0:
         gasto = gasto / qtd
     return gasto
 
@@ -172,28 +172,23 @@ def _agrupar_por_categoria(
     fonte: str,
     col_val: str,
     col_cat: str,
+    ratear: bool = True,
 ) -> Tuple[List[Dict], Decimal]:
     """
-    Retorna:
-    [
-      {
-        "id": macro_id, "nome": macro_nome, "total": Decimal,
-        "subcats": [
-           {"id": sub_id, "nome": sub_nome, "total": Decimal}
-        ]
-      },
-      ...
-    ], total_geral
+    Agrupa os itens por categoria, rateando corretamente conforme membros.
+    - Para cada membro, soma apenas a cota dele (valor dividido pelo número de membros).
+    - Para o total geral, soma o valor total de cada transação/lançamento apenas uma vez.
     """
     total_geral = Decimal("0")
     macros: Dict[int, Dict] = {}
+    objetos_somados = set()
 
     for obj in itens:
-        # Valor efetivo considerando normalização + divisão por membros
+        # Rateio correto: divide pelo número de membros apenas se ratear=True
         if fonte == "cc":
-            gasto = _valor_gasto_transacao(obj, col_val)
+            gasto = _valor_gasto_transacao(obj, col_val, ratear)
         else:
-            gasto = _valor_gasto_lancamento(obj, col_val)
+            gasto = _valor_gasto_lancamento(obj, col_val, ratear)
 
         # Categoria -> macro/sub
         c: Optional[Categoria] = getattr(obj, col_cat, None)
@@ -208,14 +203,25 @@ def _agrupar_por_categoria(
 
         s["total"] += gasto
         m["total"] += gasto
-        total_geral += gasto
 
-    # Ordenação por total desc e nome
+        # Para o total geral, soma o valor total da transação/lançamento apenas uma vez
+        obj_id = getattr(obj, "id", None)
+        if obj_id is not None and obj_id not in objetos_somados:
+            if fonte == "cc":
+                v = Decimal(getattr(obj, col_val, 0) or 0)
+                if v < 0:
+                    total_geral += abs(v)
+            else:
+                v = Decimal(getattr(obj, col_val, 0) or 0)
+                total_geral += v
+            objetos_somados.add(obj_id)
+
+    # Ordenação alfabética das categorias e subcategorias
     out: List[Dict] = []
     for m in macros.values():
         subs = list(m["subs"].values())
-        subs.sort(key=lambda x: (x["total"], x["nome"]), reverse=True)
+        subs.sort(key=lambda x: x["nome"].lower())
         out.append({"id": m["id"], "nome": m["nome"], "total": m["total"], "subcats": subs})
-    out.sort(key=lambda x: (x["total"], x["nome"]), reverse=True)
+    out.sort(key=lambda x: x["nome"].lower())
 
     return out, total_geral
