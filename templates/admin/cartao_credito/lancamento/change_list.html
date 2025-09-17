@@ -1,0 +1,9 @@
+{# filepath: templates/admin/cartao_credito/lancamento/change_list.html #}
+{% extends "admin/change_list.html" %}
+{% block object-tools %}
+    <form method="post" action="{% url 'admin:cartao_credito_lancamento_classificar_todas' %}" style="display:inline;">
+        {% csrf_token %}
+        <button type="submit" class="button">Classificar todas sem categoria</button>
+    </form>
+    {{ block.super }}
+{% endblock %}

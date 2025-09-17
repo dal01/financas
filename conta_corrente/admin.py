@@ -9,6 +9,7 @@ from django.db.models import Count, Max, Sum, QuerySet, F, Q
 from django.urls import reverse
 from django.utils.html import format_html
 
+from core.services.classificacao import classificar_categoria
 from .models import Conta, Transacao, RegraOcultacao, RegraMembro, Saldo
 
 
@@ -353,6 +354,7 @@ class TransacaoAdmin(admin.ModelAdmin):
         "acao_aplicar_regras_ocultacao",
         "acao_puxar_membro_da_conta",
         "acao_recalcular_oculta",
+        "acao_classificar_categoria",
     ]
 
     # ---- displays ----
@@ -442,6 +444,19 @@ class TransacaoAdmin(admin.ModelAdmin):
     def acao_recalcular_oculta(self, request, queryset: QuerySet[Transacao]):
         alteradas = _recalcular_oculta_queryset(queryset)
         self.message_user(request, f"Recalculo concluído: {alteradas} atualizações.", level=messages.SUCCESS)
+
+    @admin.action(description="Classificar categoria dos selecionados")
+    def acao_classificar_categoria(self, request, queryset):
+        total = 0
+        for obj in queryset:
+            if not obj.categoria:
+                obj.categoria = classificar_categoria(obj.descricao)
+                obj.save(update_fields=["categoria"])
+                total += 1
+        if total:
+            self.message_user(request, f"Categoria atribuída em {total} transação(ões).", level=messages.SUCCESS)
+        else:
+            self.message_user(request, "Nenhuma transação classificada (já tinham categoria).", level=messages.INFO)
 
 
 # =============================================================================

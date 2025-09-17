@@ -13,6 +13,7 @@ from cartao_credito.models import (
     RegraMembroCartao,
 )
 from cartao_credito.services.regras import aplicar_regras_em_queryset
+from core.services.classificacao import classificar_categoria
 
 
 # ----------------- CARTÃO -----------------
@@ -53,14 +54,15 @@ class FaturaCartaoAdmin(admin.ModelAdmin):
 # ----------------- LANÇAMENTO -----------------
 @admin.register(Lancamento)
 class LancamentoAdmin(admin.ModelAdmin):
-    list_display = ("data", "descricao", "valor")
+    list_display = ("id", "data", "descricao", "valor", "categoria")
     list_filter = ("fatura__cartao__instituicao", "fatura__cartao__bandeira", "is_duplicado", "moeda")
     search_fields = ("descricao", "cidade", "pais", "secao", "fitid", "hash_linha")
     autocomplete_fields = ("fatura",)
     filter_horizontal = ("membros",)
     date_hierarchy = "data"
     ordering = ("-data", "id")
-    actions = ["acao_aplicar_regras_membros"]
+    actions = ["acao_aplicar_regras_membros", "acao_classificar_categoria"]
+    change_list_template = "admin/cartao_credito/lancamento/change_list.html"
 
     @admin.action(description="Aplicar regras de membro (pula lançamentos já com membros)")
     def acao_aplicar_regras_membros(self, request, queryset):
@@ -75,6 +77,57 @@ class LancamentoAdmin(admin.ModelAdmin):
                 "Nenhum lançamento alterado (todos já tinham membros ou nenhuma regra casou).",
                 level=messages.INFO,
             )
+
+    @admin.action(description="Classificar categoria dos selecionados")
+    def acao_classificar_categoria(self, request, queryset):
+        total = 0
+        for obj in queryset:
+            if not obj.categoria:
+                obj.categoria = classificar_categoria(obj.descricao)
+                obj.save(update_fields=["categoria"])
+                total += 1
+        if total:
+            self.message_user(request, f"Categoria atribuída em {total} lançamento(s).", level=messages.SUCCESS)
+        else:
+            self.message_user(request, "Nenhum lançamento classificado (já tinham categoria).", level=messages.INFO)
+
+    # ------- botão "Classificar categoria em todos os lançamentos" -------
+    def get_urls(self):
+        urls = super().get_urls()
+        my_urls = [
+            path(
+                "classificar-todas/",
+                self.admin_site.admin_view(self.classificar_todas_view),
+                name="cartao_credito_lancamento_classificar_todas",
+            ),
+        ]
+        return my_urls + urls
+
+    def classificar_todas_view(self, request):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+
+        # Apenas POST por segurança (CSRF)
+        if request.method != "POST":
+            return redirect("admin:cartao_credito_lancamento_changelist")
+
+        qs = self.model.objects.filter(categoria__isnull=True)
+        total = 0
+        for obj in qs:
+            obj.categoria = classificar_categoria(obj.descricao)
+            obj.save(update_fields=["categoria"])
+            total += 1
+
+        if total:
+            self.message_user(request, f"Categoria atribuída em {total} lançamento(s).", level=messages.SUCCESS)
+        else:
+            self.message_user(request, "Nenhum lançamento classificado (já tinham categoria).", level=messages.INFO)
+
+        return redirect("admin:cartao_credito_lancamento_changelist")
+
+    class Media:
+        # JS opcional (se quiser autoajustar tipo_valor ao digitar valor)
+        js = ("cartao_credito/js/regra_membro_cartao_admin.js",)
 
 
 # ----------------- FORM DA REGRA -----------------

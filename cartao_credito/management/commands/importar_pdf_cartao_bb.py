@@ -170,12 +170,23 @@ class Command(BaseCommand):
                         fatura.fonte_arquivo = fonte_arquivo
                         fatura.save()
 
-                    Lancamento.objects.bulk_create(
-                        [
-                            Lancamento(
+                    for l in linhas:
+                        existe = Lancamento.objects.filter(
+                            fatura=fatura,
+                            data=l.data,
+                            descricao=l.descricao[:255],
+                            valor=l.valor
+                        ).exists()
+
+                        print(f"Fatura: {fatura.competencia} | Data: {l.data} | Descrição: {l.descricao[:255]} | Valor: {l.valor}")
+
+                        if existe:
+                            self.stdout.write(self.style.WARNING(f"Lançamento já existe, ignorando: {l.descricao}."))
+                        else:
+                            Lancamento.objects.create(
                                 fatura=fatura,
                                 data=l.data,
-                                descricao=l.descricao,
+                                descricao=l.descricao[:255],
                                 cidade=l.cidade or "",
                                 pais=l.pais or "",
                                 secao=l.secao,
@@ -191,10 +202,6 @@ class Command(BaseCommand):
                                 is_duplicado=l.is_duplicado,
                                 fitid=None,
                             )
-                            for l in linhas
-                        ],
-                        batch_size=500,
-                    )
 
                 ok += 1
                 self.stdout.write(self.style.SUCCESS(f"[{pdf}] Importação concluída ({len(linhas)} lançamentos)."))
