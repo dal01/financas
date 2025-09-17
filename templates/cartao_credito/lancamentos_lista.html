@@ -191,15 +191,21 @@
               {% if not l.cidade and not l.pais %}—{% endif %}
             </td>
             <td>
-              {% if l.membros.all %}
+              <form class="d-flex align-items-center gap-2" onsubmit="return false;">
+                <select multiple class="form-select form-select-sm membros-select" data-lancamento="{{ l.id }}">
+                  {% for membro in membros %}
+                    <option value="{{ membro.id }}" {% if membro in l.membros.all %}selected{% endif %}>{{ membro.nome }}</option>
+                  {% endfor %}
+                </select>
+                <button type="button" class="btn btn-sm btn-primary btn-salvar-membros" data-lancamento="{{ l.id }}">Salvar</button>
+              </form>
+              <div class="mt-1">
                 {% for m in l.membros.all %}
                   <span class="badge text-bg-light border">{{ m.nome }}</span>
                 {% empty %}
                   —
                 {% endfor %}
-              {% else %}
-                —
-              {% endif %}
+              </div>
             </td>
           </tr>
         {% empty %}
@@ -237,6 +243,33 @@
   </nav>
 
 </div>
+
+<script>
+document.querySelectorAll('.btn-salvar-membros').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var lancamentoId = btn.getAttribute('data-lancamento');
+        var select = document.querySelector('.membros-select[data-lancamento="' + lancamentoId + '"]');
+        var membros = Array.from(select.selectedOptions).map(function(opt) { return opt.value; });
+
+        fetch("{% url 'atualizar_membros_lancamento' %}", {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": "{{ csrf_token }}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: "lancamento_id=" + lancamentoId + "&" + membros.map(m => "membros[]=" + m).join("&")
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert("Membros atualizados!");
+            } else {
+                alert("Erro: " + data.error);
+            }
+        });
+    });
+});
+</script>
 
 </body>
 </html>

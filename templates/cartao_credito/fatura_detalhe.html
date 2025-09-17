@@ -61,14 +61,16 @@
               <div class="d-flex flex-wrap gap-2 membros-container">
                 <!-- Botão TODOS -->
                 <button type="button"
-                        class="btn btn-sm rounded-pill px-2 py-0 {% if l.membros_ids|length == membros|length and membros|length > 0 %}btn-primary{% else %}btn-outline-primary{% endif %} btn-toggle-todos">
+                        class="btn btn-sm rounded-pill px-2 py-0 {% if l.membros_ids|length == membros|length and membros|length > 0 %}btn-primary{% else %}btn-outline-primary{% endif %} btn-toggle-todos"
+                        data-lancamento-id="{{ l.id }}">
                   Todos
                 </button>
                 <!-- Um botão por membro -->
                 {% for m in membros %}
                   <button type="button"
                           class="btn btn-sm rounded-pill px-2 py-0 {% if m.id in l.membros_ids %}btn-primary{% else %}btn-outline-primary{% endif %} btn-toggle-membro"
-                          data-membro-id="{{ m.id }}">
+                          data-membro-id="{{ m.id }}"
+                          data-lancamento-id="{{ l.id }}">
                     {{ m.nome }}
                   </button>
                 {% empty %}
@@ -90,4 +92,69 @@
   </div>
 
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    // Alterna seleção de membros
+    document.querySelectorAll(".btn-toggle-membro").forEach(function(btn) {
+        btn.addEventListener("click", function() {
+            btn.classList.toggle("btn-primary");
+            btn.classList.toggle("btn-outline-primary");
+            salvarMembros(btn.getAttribute("data-lancamento-id"));
+        });
+    });
+
+    // Botão TODOS
+    document.querySelectorAll(".btn-toggle-todos").forEach(function(btn) {
+        btn.addEventListener("click", function() {
+            var lancamentoId = btn.getAttribute("data-lancamento-id");
+            var container = btn.closest(".membros-container");
+            var todosSelecionados = container.querySelectorAll(".btn-toggle-membro.btn-primary").length === container.querySelectorAll(".btn-toggle-membro").length;
+            container.querySelectorAll(".btn-toggle-membro").forEach(function(mBtn) {
+                if (todosSelecionados) {
+                    mBtn.classList.remove("btn-primary");
+                    mBtn.classList.add("btn-outline-primary");
+                } else {
+                    mBtn.classList.add("btn-primary");
+                    mBtn.classList.remove("btn-outline-primary");
+                }
+            });
+            salvarMembros(lancamentoId);
+        });
+    });
+
+    function salvarMembros(lancamentoId) {
+        var tr = document.querySelector('tr[data-lancamento-id="' + lancamentoId + '"]');
+        var container = tr.querySelector(".membros-container");
+        var membrosSelecionados = Array.from(container.querySelectorAll(".btn-toggle-membro.btn-primary")).map(function(btn) {
+            return btn.getAttribute("data-membro-id");
+        });
+
+        var status = tr.querySelector(".status-inline");
+        status.classList.remove("d-none");
+        status.textContent = "Salvando…";
+
+        fetch("{% url 'cartao_credito:atualizar_membros_lancamento' %}", {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": "{{ csrf_token }}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: "lancamento_id=" + lancamentoId + "&" + membrosSelecionados.map(m => "membros[]=" + m).join("&")
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                status.textContent = "Salvo!";
+                setTimeout(function() { status.classList.add("d-none"); }, 1200);
+            } else {
+                status.textContent = "Erro: " + data.error;
+            }
+        })
+        .catch(function() {
+            status.textContent = "Erro ao salvar!";
+        });
+    }
+});
+</script>
 {% endblock %}

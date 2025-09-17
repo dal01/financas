@@ -2,6 +2,7 @@ from django.urls import path
 from .views import faturas as faturas_views
 from .views import resumo_mensal as resumo_views
 from .views.parcelados import parcelados_list, parcelados_acao
+from cartao_credito.views.ajax import atualizar_membros_lancamento
 
 app_name = "cartao_credito"
 
@@ -21,4 +22,7 @@ urlpatterns = [
     # Parcelados
     path("parcelados/", parcelados_list, name="parcelados_list"),
     path("parcelados/acao/", parcelados_acao, name="parcelados_acao"),
+
+    # Ajax
+    path("ajax/atualizar-membros/", atualizar_membros_lancamento, name="atualizar_membros_lancamento"),
 ]
