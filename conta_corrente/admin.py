@@ -478,13 +478,14 @@ class RegraOcultacaoAdmin(admin.ModelAdmin):
     save_on_top = True
     preserve_filters = True
 
-    actions = ["acao_aplicar_nas_transacoes"]
+    actions = ["aplicar_todas_regras_ocultacao"]
 
-    @admin.action(description="Aplicar esta(s) regra(s) (atualiza 'oculta' nas transações)")
-    def acao_aplicar_nas_transacoes(self, request, queryset: QuerySet[RegraOcultacao]):
-        regras = list(queryset.filter(ativo=True))
+    @admin.action(description="Aplicar todas as regras de ocultação (atualiza 'oculta' nas transações)")
+    def aplicar_todas_regras_ocultacao(self, request, queryset):
+        # Aplica todas as regras ativas, ignorando a seleção
+        regras = list(RegraOcultacao.objects.filter(ativo=True))
         if not regras:
-            self.message_user(request, "Nenhuma regra ativa selecionada.", level=messages.WARNING)
+            self.message_user(request, "Nenhuma regra ativa encontrada.", level=messages.WARNING)
             return
 
         tx_qs = Transacao.objects.all()
@@ -500,91 +501,3 @@ class RegraOcultacaoAdmin(admin.ModelAdmin):
         if alterar:
             Transacao.objects.bulk_update(alterar, ["oculta"], batch_size=2000)
         self.message_user(request, f"Atualizadas {len(alterar)} transação(ões).", level=messages.INFO)
-
-
-# =============================================================================
-# Regras de Membro
-# =============================================================================
-
-@admin.register(RegraMembro)
-class RegraMembroAdmin(admin.ModelAdmin):
-    list_display = (
-        "nome",
-        "tipo_padrao",
-        "padrao",
-        "condicao_valor_display",
-        "ativo",
-        "prioridade",
-    )
-    list_filter = ("tipo_padrao", "tipo_valor", "ativo", "criado_em")
-    search_fields = ("nome", "padrao", "membros__nome")
-    filter_horizontal = ("membros",)
-    ordering = ("prioridade", "nome")
-    list_editable = ("ativo", "prioridade")
-    fieldsets = (
-        (None, {
-            "fields": (
-                "nome",
-                ("tipo_padrao", "padrao"),
-                ("tipo_valor", "valor"),
-                "membros",
-                ("ativo", "prioridade"),
-            )
-        }),
-        ("Auditoria", {"fields": ("criado_em", "atualizado_em"), "classes": ("collapse",)}),
-    )
-    readonly_fields = ("criado_em", "atualizado_em")
-    list_per_page = 50
-    save_on_top = True
-    preserve_filters = True
-
-    @admin.display(description="Condição de valor")
-    def condicao_valor_display(self, obj: RegraMembro):
-        mapa = {"nenhum": "—", "igual": "Igual a", "maior": "Maior que", "menor": "Menor que"}
-        tipo = getattr(obj, "tipo_valor", "nenhum") or "nenhum"
-        if tipo == "nenhum" or obj.valor is None:
-            return "—"
-        return f"{mapa.get(tipo, tipo)} {_fmt_brl(obj.valor)} (abs)"
-
-
-# =============================================================================
-# Saldo
-# =============================================================================
-
-@admin.register(Saldo)
-class SaldoAdmin(admin.ModelAdmin):
-    list_display = (
-        "data",
-        "valor_colorido",
-        "conta",
-        "instituicao_nome",
-        "conta_membro",
-    )
-    list_select_related = ("conta", "conta__instituicao", "conta__membro")
-    list_filter = (
-        ("conta", admin.RelatedOnlyFieldListFilter),
-        "conta__instituicao",
-        ("conta__membro", admin.RelatedOnlyFieldListFilter),
-        "data",
-    )
-    search_fields = ("conta__numero", "conta__instituicao__nome", "conta__membro__nome")
-    date_hierarchy = "data"
-    ordering = ("-data", "-id")
-    autocomplete_fields = ("conta",)
-    list_per_page = 50
-    save_on_top = True
-    preserve_filters = True
-
-    @admin.display(description="Instituição", ordering="conta__instituicao__nome")
-    def instituicao_nome(self, obj):
-        return obj.conta.instituicao.nome
-
-    @admin.display(description="Membro (da conta)", ordering="conta__membro__nome")
-    def conta_membro(self, obj):
-        return getattr(obj.conta.membro, "nome", "—")
-
-    @admin.display(description="Valor", ordering="valor")
-    def valor_colorido(self, obj):
-        v = obj.valor or 0
-        cls = "color:green;" if v > 0 else ("color:#b00020;" if v < 0 else "")
-        return format_html('<span style="{}">{}</span>', cls, _fmt_brl(v))

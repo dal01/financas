@@ -65,7 +65,7 @@ def _prepara_eixos_mes(start: date, end: date):
     idx_mes = {(d.year, d.month): i for i, d in enumerate(meses_labels)}
     return meses_labels, idx_mes
 
-def _acumular_items(items, meses_labels, idx_mes, membros_cache):
+def _acumular_items(items, meses_labels, idx_mes, membros_ordenados):
     """
     Recebe uma sequência de items com atributos:
       - data (date)
@@ -109,15 +109,17 @@ def _acumular_items(items, meses_labels, idx_mes, membros_cache):
         _acumular(it.data, it.valor, membros_tx)
 
     # montar linhas
-    nome_membro = {m.id: m.nome for m in membros_cache}
+    nome_membro = {m.id: m.nome for m in membros_ordenados}
     nome_membro[None] = "Sem membro"
 
     linhas = []
     total_geral = Decimal("0")
     total_qtd = 0
 
-    todos_ids = list(total_por_membro.keys())
-    todos_ids.sort(key=lambda mid: (nome_membro.get(mid, "zzz")).lower())
+    # Ordena: adultos (alfabética), depois crianças (alfabética), depois "Sem membro"
+    todos_ids = [m.id for m in membros_ordenados if m.id in total_por_membro]
+    if None in total_por_membro:
+        todos_ids.append(None)
 
     for mid in todos_ids:
         nm = nome_membro.get(mid, "Sem membro")
@@ -167,7 +169,12 @@ def gastos_por_membro(request):
         end   = date(hoje.year + 1, 1, 1)
 
     meses_labels, idx_mes = _prepara_eixos_mes(start, end)
-    membros_cache = list(Membro.objects.order_by("nome"))
+
+    # Ordena membros adultos e crianças
+    membros_cache = list(Membro.objects.all())
+    adultos = sorted([m for m in membros_cache if m.adulto], key=lambda m: m.nome.lower())
+    criancas = sorted([m for m in membros_cache if not m.adulto], key=lambda m: m.nome.lower())
+    membros_ordenados = adultos + criancas
 
     # --------- Conta-corrente ---------
     qs_cc = (
@@ -187,7 +194,7 @@ def gastos_por_membro(request):
 
     qs_cc = _excluir_pagamentos_cartao_cc(qs_cc)
 
-    linhas_cc, total_geral_cc, total_qtd_cc = _acumular_items(qs_cc, meses_labels, idx_mes, membros_cache)
+    linhas_cc, total_geral_cc, total_qtd_cc = _acumular_items(qs_cc, meses_labels, idx_mes, membros_ordenados)
     totais_mes_cc = _totais_mensais(qs_cc, meses_labels)
 
     # --------- Cartão de crédito ---------
@@ -200,7 +207,7 @@ def gastos_por_membro(request):
     qs_cartao = lancamentos_periodo(qs_cartao, start, end)
     qs_cartao = qs_cartao.filter(valor__lt=0)  # só gastos
 
-    linhas_cartao, total_geral_cartao, total_qtd_cartao = _acumular_items(qs_cartao, meses_labels, idx_mes, membros_cache)
+    linhas_cartao, total_geral_cartao, total_qtd_cartao = _acumular_items(qs_cartao, meses_labels, idx_mes, membros_ordenados)
     totais_mes_cartao = _totais_mensais(qs_cartao, meses_labels)
 
     # --------- Combinado (retrocompat) ---------
@@ -216,7 +223,7 @@ def gastos_por_membro(request):
         combo_items.append(_ItemComb(t.data, t.valor, t.membros.all()))
     for l in qs_cartao:
         combo_items.append(_ItemComb(l.data, l.valor, l.membros.all()))
-    linhas_combo, total_geral_combo, total_qtd_combo = _acumular_items(combo_items, meses_labels, idx_mes, membros_cache)
+    linhas_combo, total_geral_combo, total_qtd_combo = _acumular_items(combo_items, meses_labels, idx_mes, membros_ordenados)
 
     # --------- Contexto ---------
     contexto = {
@@ -225,7 +232,6 @@ def gastos_por_membro(request):
         "conta_id": conta.id if conta else None,
         "inicio": start.strftime("%Y-%m"),
         "fim": _add_meses(end, -1).strftime("%Y-%m"),  # inclusivo para exibição
-        "incluir_ocultas": incluir_ocultas,
 
         # eixo temporal
         "meses_labels": meses_labels,
@@ -251,6 +257,8 @@ def gastos_por_membro(request):
         "total_geral_ambos": total_geral_combo,
 
         # lista de membros
-        "membros": membros_cache,
+        "membros_adultos": adultos,
+        "membros_criancas": criancas,
+        "membros": membros_ordenados,
     }
     return render(request, "relatorios/gastos_membro.html", contexto)

@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% load formatadores %}
+{% load get_item %}
 
 {% block content %}
 <div class="container py-4">
+  <!-- Cabeçalho e filtros -->
   <div class="d-flex align-items-center mb-3">
     <h1 class="h4 mb-0">Resumo Mensal</h1>
     <div class="ms-3 d-flex align-items-center gap-2 flex-wrap">
@@ -12,8 +14,6 @@
       {% endif %}
     </div>
   </div>
-
-  <!-- Filtros -->
   <form class="row g-2 mb-4">
     {% if conta %}<input type="hidden" name="conta" value="{{ conta.id }}">{% endif %}
     <div class="col-12 col-sm-auto">
@@ -119,10 +119,10 @@
     <h4 class="mb-3">Resumo por Membro</h4>
   </div>
 
-  {% for m in por_membro %}
+  {% for membro in por_membro %}
     <!-- Nome do membro -->
     <div class="d-flex align-items-center mt-4 mb-2">
-      <h5 class="mb-0">{{ m.membro_nome }}</h5>
+      <h5 class="mb-0">{{ membro.membro_nome }}</h5>
       <hr class="flex-grow-1 ms-3">
     </div>
 
@@ -132,7 +132,7 @@
         <div class="card border-0 shadow-sm h-100">
           <div class="card-body">
             <div class="text-secondary small">Entradas</div>
-            <div class="fs-5 fw-semibold text-success">{{ m.totais.entradas|moeda_brasileira }}</div>
+            <div class="fs-5 fw-semibold text-success">{{ membro.totais.entradas|moeda_brasileira }}</div>
           </div>
         </div>
       </div>
@@ -140,7 +140,7 @@
         <div class="card border-0 shadow-sm h-100">
           <div class="card-body">
             <div class="text-secondary small">Saídas</div>
-            <div class="fs-5 fw-semibold text-danger">{{ m.totais.saidas|moeda_brasileira }}</div>
+            <div class="fs-5 fw-semibold text-danger">{{ membro.totais.saidas|moeda_brasileira }}</div>
           </div>
         </div>
       </div>
@@ -148,7 +148,7 @@
         <div class="card border-0 shadow-sm h-100">
           <div class="card-body">
             <div class="text-secondary small">Saldo</div>
-            <div class="fs-5 fw-semibold">{{ m.totais.saldo|moeda_brasileira }}</div>
+            <div class="fs-5 fw-semibold">{{ membro.totais.saldo|moeda_brasileira }}</div>
           </div>
         </div>
       </div>
@@ -157,16 +157,16 @@
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center">
               <div class="text-secondary small">Poupança no período</div>
-              <span class="badge {% if m.poupado_pct|floatformat:2 < 0 %}text-bg-danger{% else %}text-bg-primary{% endif %}">
-                {{ m.poupado_pct }}%
+              <span class="badge {% if membro.poupado_pct|floatformat:2 < 0 %}text-bg-danger{% else %}text-bg-primary{% endif %}">
+                {{ membro.poupado_pct }}%
               </span>
             </div>
             <div class="mt-2">
               <div class="progress" role="progressbar"
                    aria-valuemin="0" aria-valuemax="100"
-                   aria-valuenow="{{ m.poupado_pct_clamp|floatformat:0 }}">
+                   aria-valuenow="{{ membro.poupado_pct_clamp|floatformat:0 }}">
                 <div class="progress-bar"
-                     style="width: {{ m.poupado_pct_clamp|floatformat:0|default_if_none:'0' }}%;"></div>
+                     style="width: {{ membro.poupado_pct_clamp|floatformat:0|default_if_none:'0' }}%;"></div>
               </div>
               <div class="small text-muted mt-1">
                 Percentual calculado como <em>saldo ÷ entradas × 100</em>.
@@ -189,7 +189,7 @@
           </tr>
         </thead>
         <tbody>
-          {% for c in m.contas %}
+          {% for c in membro.contas %}
             <tr>
               <td>{{ c.instituicao }} — {{ c.numero }}</td>
               <td class="text-end text-success">{{ c.entradas|moeda_brasileira }}</td>
@@ -203,19 +203,61 @@
         <tfoot>
           <tr class="fw-semibold">
             <td>Total do membro</td>
-            <td class="text-end text-success">{{ m.totais.entradas|moeda_brasileira }}</td>
-            <td class="text-end text-danger">{{ m.totais.saidas|moeda_brasileira }}</td>
-            <td class="text-end">{{ m.totais.saldo|moeda_brasileira }}</td>
+            <td class="text-end text-success">{{ membro.totais.entradas|moeda_brasileira }}</td>
+            <td class="text-end text-danger">{{ membro.totais.saidas|moeda_brasileira }}</td>
+            <td class="text-end">{{ membro.totais.saldo|moeda_brasileira }}</td>
           </tr>
         </tfoot>
       </table>
     </div>
+
+    <!-- Detalhamento por Conta e Mês -->
+    {% for conta in membro.contas %}
+      <div class="mt-3 mb-2 fw-semibold">
+        {{ conta.instituicao }} — Conta {{ conta.numero }}
+      </div>
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>Mês</th>
+            <th class="text-end">Entradas</th>
+            <th class="text-end">Saídas</th>
+            <th class="text-end">Saldo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for mes in serie %}
+            {% with entrada=conta.mes_entradas|get_item:mes.mes saida=conta.mes_saidas|get_item:mes.mes %}
+              {% if entrada or saida %}
+                <tr>
+                  <td>{{ mes.mes }}</td>
+                  <td class="text-end text-success">
+                    {{ entrada|moeda_brasileira|default:"0,00" }}
+                  </td>
+                  <td class="text-end text-danger">
+                    {{ saida|moeda_brasileira|default:"0,00" }}
+                  </td>
+                  <td class="text-end">
+                    {{ conta.mes_saldo|get_item:mes.mes|moeda_brasileira|default:"0,00" }}
+                  </td>
+                </tr>
+              {% endif %}
+            {% endwith %}
+          {% endfor %}
+          <tr class="table-light fw-bold">
+            <td>Total</td>
+            <td class="text-end text-success">{{ conta.entradas|moeda_brasileira }}</td>
+            <td class="text-end text-danger">{{ conta.saidas|moeda_brasileira }}</td>
+            <td class="text-end">{{ conta.saldo|moeda_brasileira }}</td>
+          </tr>
+        </tbody>
+      </table>
+    {% endfor %}
 
     {% if not forloop.last %}<hr class="my-4">{% endif %}
   {% empty %}
     <div class="text-muted">Sem dados por membro no período.</div>
   {% endfor %}
   <div style="height: 80px;"></div>
-
 </div>
 {% endblock %}

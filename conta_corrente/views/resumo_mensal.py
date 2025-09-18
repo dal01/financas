@@ -12,6 +12,7 @@ from conta_corrente.utils.helpers import (
     transacoes_visiveis,
     transacoes_periodo,
 )
+from core.models import Membro
 
 
 def _primeiro_dia_do_mes(dt: date) -> date:
@@ -46,6 +47,12 @@ def resumo_mensal(request):
     """
     qs = Transacao.objects.select_related(
         "conta", "conta__instituicao", "conta__membro"
+    )
+
+    base_qs = Transacao.objects.filter(
+        oculta=False,
+        oculta_manual=False,
+        # outros filtros de período, se necessário
     )
 
     # Conta (opcional)
@@ -263,4 +270,61 @@ def resumo_mensal(request):
             for m in por_membro.values()
         ],
     }
+    for m in por_membro.values():
+        for c in m["contas"]:
+            c["mes_entradas"] = {}
+            c["mes_saidas"] = {}
+            c["mes_saldo"] = {}
+            for row in serie:
+                ano = int(row["mes"][:4])
+                mes = int(row["mes"][5:])
+                transacoes_mes = base_qs.filter(
+                    conta_id=c["conta_id"],
+                    data__year=ano,
+                    data__month=mes,
+                )
+                entradas = transacoes_mes.filter(valor__gt=0).aggregate(Sum("valor"))["valor__sum"] or Decimal("0")
+                saidas = transacoes_mes.filter(valor__lt=0).aggregate(Sum("valor"))["valor__sum"] or Decimal("0")
+                saldo = transacoes_mes.aggregate(Sum("valor"))["valor__sum"] or Decimal("0")
+                c["mes_entradas"][row["mes"]] = entradas
+                c["mes_saidas"][row["mes"]] = saidas
+                c["mes_saldo"][row["mes"]] = saldo
+
+    # Ordena membros adultos e crianças
+    membros = Membro.objects.all()
+    membros_adultos = sorted([m for m in membros if m.adulto], key=lambda m: m.nome.lower())
+    membros_criancas = sorted([m for m in membros if not m.adulto], key=lambda m: m.nome.lower())
+
+    # Contexto HTML
+    contexto = {
+        "conta": conta,
+        "inicio": payload["inicio"],
+        "fim": payload["fim"],
+        "serie": serie,
+        "totais": {
+            "entradas": total_entradas,
+            "saidas": total_saidas,
+            "saldo": total_saldo,
+            "poupado_pct": poupado_pct,
+            "poupado_pct_clamp": poupado_pct_clamp,
+        },
+        "por_membro": [
+            {
+                "membro_id": m["membro_id"],
+                "membro_nome": m["membro_nome"],
+                "totais": {
+                    "entradas": m["totais"]["entradas"],
+                    "saidas": m["totais"]["saidas"],
+                    "saldo": m["totais"]["saldo"],
+                },
+                "poupado_pct": m["poupado_pct"],
+                "poupado_pct_clamp": m["poupado_pct_clamp"],
+                "contas": m["contas"],
+            }
+            for m in por_membro.values()
+        ],
+        "membros_adultos": membros_adultos,
+        "membros_criancas": membros_criancas,
+    }
+
     return render(request, "conta_corrente/resumo_mensal.html", contexto)
