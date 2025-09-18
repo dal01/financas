@@ -241,6 +241,7 @@ def classificacao(request: HttpRequest) -> HttpResponse:
         qs = Transacao.objects.all()
         qs = _apenas_visiveis_qs(qs)
         qs = _filtrar_periodo(qs, data_ini, data_fim, TX_COL_DATA)
+        qs = qs.filter(valor__lt=0)  # <-- Só débitos!
 
         # Filtro por categoria (macro)
         if categoria_id is not None and categoria_id != "":
