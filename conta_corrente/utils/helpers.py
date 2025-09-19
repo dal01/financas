@@ -1,6 +1,7 @@
 from decimal import Decimal
 from typing import Optional, Iterable
 from django.db.models import Sum
+from django.db.models.functions import TruncMonth
 from conta_corrente.models import Transacao
 
 from datetime import date, datetime
@@ -79,6 +80,67 @@ def total_saidas(
         else:
             total += abs(tx.valor)
     return total
+
+def media_entradas(
+    data_ini: str,
+    data_fim: str,
+    instituicoes: Optional[Iterable[int]] = None,
+    membros: Optional[Iterable[int]] = None,
+) -> Decimal:
+    qs = Transacao.objects.filter(
+        data__gte=data_ini,
+        data__lte=data_fim,
+        valor__gt=0,
+        oculta=False,
+        oculta_manual=False
+    )
+    if instituicoes:
+        qs = qs.filter(conta__instituicao_id__in=list(instituicoes))
+    if membros:
+        qs = qs.filter(membros__id__in=list(membros))
+
+    # Agrupa por mês e soma
+    meses = (
+        qs.annotate(mes=TruncMonth("data"))
+        .values("mes")
+        .annotate(total=Sum("valor"))
+        .filter(total__gt=0)
+    )
+    total = sum(m["total"] for m in meses)
+    qtd_meses = meses.count()
+    media = total / qtd_meses if qtd_meses else Decimal("0")
+    return media
+
+def media_saidas(
+    data_ini: str,
+    data_fim: str,
+    instituicoes: Optional[Iterable[int]] = None,
+    membros: Optional[Iterable[int]] = None,
+) -> Decimal:
+    qs = Transacao.objects.filter(
+        data__gte=data_ini,
+        data__lte=data_fim,
+        valor__lt=0,
+        oculta=False,
+        oculta_manual=False,
+        pagamento_cartao=False
+    )
+    if instituicoes:
+        qs = qs.filter(conta__instituicao_id__in=list(instituicoes))
+    if membros:
+        qs = qs.filter(membros__id__in=list(membros)).distinct()
+
+    meses = (
+        qs.annotate(mes=TruncMonth("data"))
+        .values("mes")
+        .annotate(total=Sum("valor"))
+        .filter(total__lt=0)
+    )
+    # Saídas são negativas, soma o valor absoluto
+    total = sum(abs(m["total"]) for m in meses)
+    qtd_meses = meses.count()
+    media = total / qtd_meses if qtd_meses else Decimal("0")
+    return media
 
 def transacoes_visiveis(qs=None):
     qs = qs or Transacao.objects.all()

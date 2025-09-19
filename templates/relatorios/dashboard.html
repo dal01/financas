@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load formatadores %}
 
 {% block content %}
 <div class="dashboard">
@@ -20,6 +21,58 @@
         {% for card in cards %}
             {% include "relatorios/cards/receita_gasto.html" with card=card %}
         {% endfor %}
+    </div>
+
+    <h4>Receita x Gasto</h4>
+    <div class="row">
+      {% for card in cards_receita_gasto %}
+        <div class="col">
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5>{{ card.titulo }}</h5>
+              <ul class="list-group list-group-flush">
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Receita</span>
+        <span class="fw-bold text-success">{{ card.receita|moeda_brasileira }}</span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Gasto</span>
+        <span class="fw-bold text-danger">{{ card.gasto|moeda_brasileira }}</span>
+    </li>
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Saldo</span>
+        <span class="fw-bold">{{ card.saldo|moeda_brasileira }}</span>
+    </li>
+    {% if card.porcentagem is not None %}
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Poupança (%)</span>
+        <span class="fw-bold">{{ card.porcentagem|floatformat:2 }}%</span>
+    </li>
+    {% endif %}
+</ul>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <h4>Entradas</h4>
+    <div class="row">
+      {% for card in cards_entradas %}
+        <div class="col">
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5>{{ card.titulo }}</h5>
+              <div>
+                <strong>Total: {{ card.valor|moeda_brasileira }}</strong>
+              </div>
+              <div>
+                <span class="text-muted">Média mensal: {{ card.media|moeda_brasileira }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
     </div>
 </div>
 {% endblock %}
