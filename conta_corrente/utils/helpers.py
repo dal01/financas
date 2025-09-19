@@ -3,6 +3,7 @@ from typing import Optional, Iterable
 from django.db.models import Sum
 from django.db.models.functions import TruncMonth
 from conta_corrente.models import Transacao
+from core.models import Membro
 
 from datetime import date, datetime
 
@@ -163,3 +164,17 @@ def transacoes_membro(qs, membros=None):
     if membros:
         qs = qs.filter(membros__id__in=list(membros)).distinct()
     return qs
+
+def atribuir_membro(id_transacao: int, membros_ids: list[int]) -> bool:
+    """
+    Atribui os membros informados à transação de conta corrente.
+    Retorna True se atribuiu, False se não encontrou a transação.
+    """
+    try:
+        tx = Transacao.objects.get(pk=id_transacao)
+        membros = Membro.objects.filter(id__in=membros_ids)
+        tx.membros.set(membros)
+        tx.save()
+        return True
+    except Transacao.DoesNotExist:
+        return False

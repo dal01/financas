@@ -11,9 +11,11 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.views.decorators.http import require_http_methods
 
-from core.models import Categoria
+from core.models import Categoria, Membro
 from conta_corrente.models import Transacao
 from cartao_credito.models import Lancamento
+from conta_corrente.utils.helpers import atribuir_membro as atribuir_membro_cc
+from cartao_credito.utils.helpers import atribuir_membro as atribuir_membro_cartao
 
 
 # =========================
@@ -217,36 +219,30 @@ def classificacao(request: HttpRequest) -> HttpResponse:
     busca = (request.GET.get("busca") or "").strip()
     categoria_id = request.GET.get("categoria_id")
     subcategoria_id = request.GET.get("subcategoria_id")
+    membro_id = request.GET.get("membro_id")
 
-    # Ordenação padrão:
-    # - CC: por data do movimento
-    # - Cartão: por competência da fatura e, em seguida, data do lançamento
     if fonte == "cartao":
         ordering = (request.GET.get("ordering") or "-fatura__competencia,-data").strip()
     else:
         ordering = (request.GET.get("ordering") or "-data").strip()
 
-    # -----------------------
-    # Período padrão: de 1º jan até hoje
-    # -----------------------
     hoje = date.today()
     primeiro_dia_ano = date(hoje.year, 1, 1)
     data_ini = (request.GET.get("data_ini") or primeiro_dia_ano.strftime("%Y-%m-%d")).strip()
     data_fim = (request.GET.get("data_fim") or hoje.strftime("%Y-%m-%d")).strip()
 
     categorias_macro = Categoria.objects.filter(nivel=1).order_by("nome")
+    membros = list(Membro.objects.order_by("nome"))
 
     # ---------- Conta Corrente ----------
     if fonte == "cc":
         qs = Transacao.objects.all()
         qs = _apenas_visiveis_qs(qs)
         qs = _filtrar_periodo(qs, data_ini, data_fim, TX_COL_DATA)
-        qs = qs.filter(valor__lt=0)  # <-- Só débitos!
+        qs = qs.filter(valor__lt=0)
 
-        # Filtro por categoria (macro)
         if categoria_id is not None and categoria_id != "":
             if categoria_id == "0":
-                # "(Sem categoria)" -> categoria nula
                 qs = qs.filter(**{f"{TX_COL_CAT}__isnull": True})
             else:
                 qs = qs.filter(
@@ -254,9 +250,11 @@ def classificacao(request: HttpRequest) -> HttpResponse:
                     Q(**{f"{TX_COL_CAT}__categoria_pai_id": categoria_id})
                 )
 
-        # Filtro por subcategoria
         if subcategoria_id:
             qs = qs.filter(**{f"{TX_COL_CAT}_id": subcategoria_id})
+
+        if membro_id:
+            qs = qs.filter(membros__id=membro_id)
 
         qs = _parse_busca(qs, busca, campos=[TX_COL_DESC])
         qs = _ordenar(qs, default=ordering)
@@ -280,14 +278,14 @@ def classificacao(request: HttpRequest) -> HttpResponse:
             "col_desc": TX_COL_DESC,
             "col_val": TX_COL_VAL,
             "col_cat": TX_COL_CAT,
+            "membros": membros,
+            "membro_id": membro_id,
         }
         return render(request, "classificacao/gastos.html", ctx)
 
     # ---------- Cartão de Crédito ----------
     qs = Lancamento.objects.all()
     qs = _apenas_visiveis_qs(qs)
-
-    # >>> filtro por **competência da fatura** (não pela data da compra)
     qs = _filtrar_periodo_cartao_por_fatura(qs, data_ini, data_fim)
 
     if categoria_id is not None and categoria_id != "":
@@ -301,6 +299,9 @@ def classificacao(request: HttpRequest) -> HttpResponse:
 
     if subcategoria_id:
         qs = qs.filter(**{f"{LC_COL_CAT}_id": subcategoria_id})
+
+    if membro_id:
+        qs = qs.filter(membros__id=membro_id)
 
     qs = _parse_busca(qs, busca, campos=[LC_COL_DESC])
     qs = _ordenar(qs, default=ordering)
@@ -324,6 +325,8 @@ def classificacao(request: HttpRequest) -> HttpResponse:
         "col_desc": LC_COL_DESC,
         "col_val": LC_COL_VAL,
         "col_cat": LC_COL_CAT,
+        "membros": membros,
+        "membro_id": membro_id,
     }
     return render(request, "classificacao/gastos.html", ctx)
 
@@ -388,6 +391,31 @@ def atribuir_categoria_ajax(request: HttpRequest) -> JsonResponse:
 
 
 # =========================
+# AJAX: atribuir membro (1 ou muitos)
+# =========================
+@require_http_methods(["POST"])
+def atribuir_membro_ajax(request: HttpRequest) -> JsonResponse:
+    fonte = (request.POST.get("fonte") or "").strip().lower()
+    item_id = request.POST.get("item_id")
+    membros_ids_raw = request.POST.getlist("membros_ids")
+    membros_ids = [int(x) for x in membros_ids_raw if x.strip()]
+
+    if fonte == "cc":
+        ok = atribuir_membro_cc(item_id, membros_ids)
+        if ok:
+            return JsonResponse({"ok": True, "fonte": "cc"})
+        else:
+            return JsonResponse({"ok": False, "erro": "Transação não encontrada."}, status=404)
+    elif fonte == "cartao":
+        ok = atribuir_membro_cartao(item_id, membros_ids)
+        if ok:
+            return JsonResponse({"ok": True, "fonte": "cartao"})
+        else:
+            return JsonResponse({"ok": False, "erro": "Lançamento não encontrado."}, status=404)
+    return JsonResponse({"ok": False, "erro": "Fonte inválida."}, status=400)
+
+
+# =========================
 # AJAX: subcategorias de uma macro (categoria_pai)
 # =========================
 @require_http_methods(["GET"])
@@ -403,6 +431,21 @@ def carregar_subcategorias_ajax(request: HttpRequest) -> JsonResponse:
     qs = Categoria.objects.filter(nivel=2, categoria_pai_id=macro_id_int).order_by("nome")
     itens = [{"id": c.id, "nome": c.nome} for c in qs]
     return JsonResponse({"ok": True, "itens": itens})
+
+
+# =========================
+# AJAX: membros de uma transação
+# =========================
+@require_http_methods(["GET"])
+def membros_transacao_ajax(request: HttpRequest) -> JsonResponse:
+    fonte = request.GET.get("fonte")
+    item_id = request.GET.get("item_id")
+    if fonte == "cc":
+        obj = Transacao.objects.get(pk=item_id)
+    else:
+        obj = Lancamento.objects.get(pk=item_id)
+    membros_ids = list(obj.membros.values_list("id", flat=True))
+    return JsonResponse({"ok": True, "membros_ids": membros_ids})
 
 
 # Alias para o urls.py existente

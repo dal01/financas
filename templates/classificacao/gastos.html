@@ -99,6 +99,7 @@
                     <th style="width:36px;"></th>
                     <th style="width:110px;">Data</th>
                     <th>Descrição</th>
+                    <th style="width:150px;">Membros</th>
                     <th class="text-end" style="width:160px;">Valor</th>
                   </tr>
                 </thead>
@@ -110,6 +111,29 @@
                       </td>
                       <td>{{ it|get_attr:col_data|date:"d/m/Y" }}</td>
                       <td>{{ it|get_attr:col_desc }}</td>
+                      <td>
+                        <div class="btn-group" id="pills-{{ it.id }}" data-fonte="{{ fonte }}" role="group" aria-label="Membros">
+                          <button type="button"
+                                  class="btn btn-outline-primary btn-sm {% if it.membros.all|length == membros|length %}active{% endif %}"
+                                  onclick="atribuirTodosMembros('{{ it.id }}', '{{ fonte }}')">
+                            Todos
+                          </button>
+                          {% for membro in membros %}
+                            <button type="button"
+                                    class="btn btn-outline-primary btn-sm {% if membro in it.membros.all %}active{% endif %}"
+                                    onclick="toggleMembro(
+                                      '{{ it.id }}',
+                                      '{{ membro.id }}',
+                                      {% if membro in it.membros.all %}true{% else %}false{% endif %},
+                                      '{{ fonte }}',
+                                      [{% for m in it.membros.all %}'{{ m.id }}'{% if not forloop.last %},{% endif %}{% endfor %}]
+                                    )">
+                              {{ membro.nome }}
+                            </button>
+                          {% endfor %}
+                        </div>
+                        <div id="msg-{{ it.id }}" class="mt-1" style="display:none;"></div>
+                      </td>
                       <td class="text-end">{{ it|get_attr:col_val|moeda_brasileira }}</td>
                     </tr>
                   {% empty %}
@@ -175,6 +199,130 @@
 
 {% block extra_js %}
 <script>
+function showMsg(itemId, msg, tipo='success') {
+  const el = document.getElementById('msg-' + itemId);
+  if (!el) return;
+  el.innerHTML = `<span class="badge bg-${tipo}">${msg}</span>`;
+  el.style.display = 'inline-block';
+  setTimeout(() => { el.style.display = 'none'; }, 1800);
+}
+
+function atribuirMembro(itemId, membroId, fonte) {
+  console.log("atribuirMembro chamado:", {itemId, membroId, fonte}); // DEBUG
+
+  const data = new FormData();
+  data.append('fonte', fonte);
+  data.append('item_id', itemId);
+
+  if (membroId === 'todos') {
+    {% for membro in membros %}
+      data.append('membros_ids', '{{ membro.id }}');
+    {% endfor %}
+  } else {
+    data.append('membros_ids', membroId);
+  }
+
+  fetch("{% url 'atribuir_membro_ajax' %}", {
+    method: 'POST',
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+    body: data
+  })
+  .then(resp => {
+    if (!resp.ok) {
+      alert("Erro na requisição AJAX: " + resp.status);
+      throw new Error("Erro AJAX: " + resp.status);
+    }
+    return resp.json();
+  })
+  .then(result => {
+    console.log("Resposta AJAX:", result); // DEBUG
+    if (result.ok) {
+      location.reload();
+    } else {
+      alert(result.erro || "Erro ao atribuir membro.");
+    }
+  })
+  .catch(e => {
+    alert("Falha na comunicação AJAX: " + e);
+    console.error(e);
+  });
+}
+
+function atribuirTodosMembros(itemId, fonte) {
+  const data = new FormData();
+  data.append('fonte', fonte);
+  data.append('item_id', itemId);
+  {% for membro in membros %}
+    data.append('membros_ids', '{{ membro.id }}');
+  {% endfor %}
+
+  fetch("{% url 'atribuir_membro_ajax' %}", {
+    method: 'POST',
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+    body: data
+  })
+  .then(resp => resp.json())
+  .then(result => {
+    if (result.ok) {
+      atualizarPills(itemId, fonte);
+      showMsg(itemId, "Salvo!", "success");
+    } else {
+      showMsg(itemId, result.erro || "Erro ao atribuir membros.", "danger");
+    }
+  });
+}
+
+function toggleMembro(itemId, membroId, ativo, fonte, membrosAtuais) {
+  membrosAtuais = Array.isArray(membrosAtuais) ? membrosAtuais.map(String) : [];
+  membroId = String(membroId);
+
+  if (ativo) {
+    membrosAtuais = membrosAtuais.filter(id => id !== membroId);
+  } else {
+    if (!membrosAtuais.includes(membroId)) {
+      membrosAtuais.push(membroId);
+    }
+  }
+
+  const data = new FormData();
+  data.append('fonte', fonte);
+  data.append('item_id', itemId);
+  membrosAtuais.forEach(id => data.append('membros_ids', id));
+
+  fetch("{% url 'atribuir_membro_ajax' %}", {
+    method: 'POST',
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+    body: data
+  })
+  .then(resp => resp.json())
+  .then(result => {
+    if (result.ok) {
+      atualizarPills(itemId, fonte);
+      showMsg(itemId, "Salvo!", "success");
+    } else {
+      showMsg(itemId, result.erro || "Erro ao atribuir/remover membro.", "danger");
+    }
+  });
+}
+
+function atualizarPills(itemId, fonte) {
+  fetch("{% url 'membros_transacao_ajax' %}?fonte=" + fonte + "&item_id=" + itemId)
+    .then(resp => resp.json())
+    .then(data => {
+      if (!data.ok) return;
+      const membrosNovos = data.membros_ids.map(String);
+      const grupo = document.getElementById('pills-' + itemId);
+      if (!grupo) return;
+      let html = '';
+      html += `<button type="button" class="btn btn-outline-primary btn-sm ${membrosNovos.length === {{ membros|length }} ? 'active' : ''}" onclick="atribuirTodosMembros('${itemId}', '${grupo.dataset.fonte}')">Todos</button>`;
+      {% for membro in membros %}
+        html += `<button type="button" class="btn btn-outline-primary btn-sm ${membrosNovos.includes('{{ membro.id }}') ? 'active' : ''}" onclick="toggleMembro('${itemId}', '{{ membro.id }}', ${membrosNovos.includes('{{ membro.id }}')}, '${fonte}', [${membrosNovos.map(id => `'${id}'`).join(',')}])">{{ membro.nome }}</button>`;
+      {% endfor %}
+      grupo.innerHTML = html;
+    });
+}
+
+// O restante do JS pode continuar dentro do bloco imediatamente executado
 (function(){
   const fonte = "{{ fonte }}";
 

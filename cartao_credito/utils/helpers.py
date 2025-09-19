@@ -1,6 +1,7 @@
 from decimal import Decimal
 from typing import Optional, Iterable
 from cartao_credito.models import Lancamento
+from core.models import Membro
 from datetime import date, datetime
 
 def total_saidas_cartao(
@@ -78,3 +79,13 @@ def lancamentos_membro(qs, membros=None):
     if membros:
         qs = qs.filter(membros__id__in=list(membros)).distinct()
     return qs
+
+def atribuir_membro(id_lancamento: int, membros_ids: list[int]) -> bool:
+    try:
+        lanc = Lancamento.objects.get(pk=id_lancamento)
+        membros = Membro.objects.filter(id__in=membros_ids)
+        lanc.membros.set(membros)
+        lanc.save()
+        return True
+    except Lancamento.DoesNotExist:
+        return False
