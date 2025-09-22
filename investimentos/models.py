@@ -9,14 +9,8 @@ class Investimento(models.Model):
         on_delete=models.CASCADE,
         related_name="investimentos",
     )
-    nome = models.CharField(max_length=120)
-    membro = models.ForeignKey(
-        Membro,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="investimentos",
-    )
+    nome = models.CharField(max_length=100)
+    membro = models.ForeignKey(Membro, on_delete=models.CASCADE)
     ativo = models.BooleanField(default=True)
 
     class Meta:
@@ -29,8 +23,7 @@ class Investimento(models.Model):
         ordering = ["instituicao__nome", "nome"]
 
     def __str__(self):
-        nome_inst = getattr(self.instituicao, "nome", "?")
-        return f"{self.nome} ({nome_inst})"
+        return f"{self.membro.nome} - {self.nome}"
 
     @property
     def saldo_mais_recente(self):
