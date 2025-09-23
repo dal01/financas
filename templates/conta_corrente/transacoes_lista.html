@@ -167,35 +167,20 @@
 
                     <!-- Coluna de Membros: botão "Todos" + tags -->
                     <td class="text-wrap">
-                      <div class="d-flex flex-wrap gap-2">
+                      <div class="d-flex flex-wrap gap-2" id="pills-{{ t.id }}" data-fonte="cc">
                         <!-- Botão TODOS -->
-                        <form method="post" action="{% url 'conta_corrente:transacao_toggle_membro' %}" class="d-inline">
-                          {% csrf_token %}
-                          <input type="hidden" name="transacao_id" value="{{ t.id }}">
-                          <input type="hidden" name="membro_id" value="todos">
-                          <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-                          {% if t.membros.all|length == membros|length and membros|length > 0 %}
-                            <button class="btn btn-sm rounded-pill px-2 py-0 btn-primary" title="Remover todos">Todos</button>
-                          {% else %}
-                            <button class="btn btn-sm rounded-pill px-2 py-0 btn-outline-primary" title="Atribuir todos">Todos</button>
-                          {% endif %}
-                        </form>
-
+                        <button type="button"
+                          class="btn btn-sm rounded-pill px-2 py-0 {% if t.membros.all|length == membros|length and membros|length > 0 %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                          onclick="atribuirTodosMembros('{{ t.id }}')">
+                          Todos
+                        </button>
                         <!-- Tags por membro -->
                         {% for m in membros %}
-                          <form method="post" action="{% url 'conta_corrente:transacao_toggle_membro' %}" class="d-inline">
-                            {% csrf_token %}
-                            <input type="hidden" name="transacao_id" value="{{ t.id }}">
-                            <input type="hidden" name="membro_id" value="{{ m.id }}">
-                            <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-                            <button type="submit"
-                              class="btn btn-sm rounded-pill px-2 py-0 {% if m in t.membros.all %}btn-primary{% else %}btn-outline-primary{% endif %}"
-                              title="{% if m in t.membros.all %}Remover{% else %}Adicionar{% endif %} {{ m.nome }}">
-                              {{ m.nome }}
-                            </button>
-                          </form>
-                        {% empty %}
-                          <span class="text-muted small">Sem membros cadastrados</span>
+                          <button type="button"
+                            class="btn btn-sm rounded-pill px-2 py-0 {% if m in t.membros.all %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                            onclick="toggleMembro('{{ t.id }}', '{{ m.id }}', {% if m in t.membros.all %}true{% else %}false{% endif %}, [ {% for mm in t.membros.all %}'{{ mm.id }}',{% endfor %} ])">
+                            {{ m.nome }}
+                          </button>
                         {% endfor %}
                       </div>
                     </td>
@@ -324,4 +309,80 @@
   {% endif %}
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function atribuirTodosMembros(itemId) {
+  const data = new FormData();
+  data.append('fonte', 'cc');
+  data.append('item_id', itemId);
+  {% for m in membros %}
+    data.append('membros_ids', '{{ m.id }}');
+  {% endfor %}
+
+  fetch("{% url 'atribuir_membro_ajax' %}", {
+    method: 'POST',
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+    body: data
+  })
+  .then(resp => resp.json())
+  .then(result => {
+    if (result.ok) {
+      atualizarPills(itemId);
+    } else {
+      alert(result.erro || "Erro ao atribuir membros.");
+    }
+  });
+}
+
+function toggleMembro(itemId, membroId, ativo, membrosAtuais) {
+  membrosAtuais = Array.isArray(membrosAtuais) ? membrosAtuais.map(String) : [];
+  membroId = String(membroId);
+
+  if (ativo) {
+    membrosAtuais = membrosAtuais.filter(id => id !== membroId);
+  } else {
+    if (!membrosAtuais.includes(membroId)) {
+      membrosAtuais.push(membroId);
+    }
+  }
+
+  const data = new FormData();
+  data.append('fonte', 'cc');
+  data.append('item_id', itemId);
+  membrosAtuais.forEach(id => data.append('membros_ids', id));
+
+  fetch("{% url 'atribuir_membro_ajax' %}", {
+    method: 'POST',
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+    body: data
+  })
+  .then(resp => resp.json())
+  .then(result => {
+    if (result.ok) {
+      atualizarPills(itemId);
+    } else {
+      alert(result.erro || "Erro ao atribuir/remover membro.");
+    }
+  });
+}
+
+function atualizarPills(itemId) {
+  fetch("{% url 'membros_transacao_ajax' %}?fonte=cc&item_id=" + itemId)
+    .then(resp => resp.json())
+    .then(data => {
+      if (!data.ok) return;
+      const membrosNovos = data.membros_ids.map(String);
+      const grupo = document.getElementById('pills-' + itemId);
+      if (!grupo) return;
+      let html = '';
+      html += `<button type="button" class="btn btn-sm rounded-pill px-2 py-0 ${membrosNovos.length === {{ membros|length }} ? 'btn-primary' : 'btn-outline-primary'}" onclick="atribuirTodosMembros('${itemId}')">Todos</button>`;
+      {% for m in membros %}
+        html += `<button type="button" class="btn btn-sm rounded-pill px-2 py-0 ${membrosNovos.includes('{{ m.id }}') ? 'btn-primary' : 'btn-outline-primary'}" onclick="toggleMembro('${itemId}', '{{ m.id }}', ${membrosNovos.includes('{{ m.id }}')}, [${membrosNovos.map(id => `'${id}'`).join(',')}])">{{ m.nome }}</button>`;
+      {% endfor %}
+      grupo.innerHTML = html;
+    });
+}
+</script>
 {% endblock %}

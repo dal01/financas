@@ -5,6 +5,7 @@ from conta_corrente.views.transacoes import listar_transacoes
 from conta_corrente.views.transacoes_toggle import toggle_oculta_transacao
 from conta_corrente.views.resumo_mensal import resumo_mensal
 from conta_corrente.views.transacao_toggle_membro import transacao_toggle_membro
+from conta_corrente.views.ajax_views import atribuir_membro_ajax, membros_transacao_ajax
 
 app_name = "conta_corrente"
 
@@ -15,4 +16,6 @@ urlpatterns = [
     path("transacoes/<int:pk>/toggle-oculta/", toggle_oculta_transacao, name="transacao_toggle_oculta"),
     path("resumo-mensal/", resumo_mensal, name="resumo_mensal"),
     path("transacao-toggle-membro/", transacao_toggle_membro, name="transacao_toggle_membro"),
+    path("ajax/atribuir_membro/", atribuir_membro_ajax, name="atribuir_membro_ajax"),
+    path("ajax/membros_transacao/", membros_transacao_ajax, name="membros_transacao_ajax"),
 ]

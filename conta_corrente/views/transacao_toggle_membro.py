@@ -37,3 +37,5 @@ def transacao_toggle_membro(request):
             messages.success(request, f"{m.nome} adicionado à transação.")
 
     return redirect(return_url)
+
+
