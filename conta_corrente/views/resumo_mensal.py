@@ -79,6 +79,7 @@ def resumo_mensal(request):
     qs = transacoes_visiveis(qs)
     qs = transacoes_periodo(qs, start, end)
 
+
     # -----------------------------
     # Séries mensais (geral)
     # -----------------------------

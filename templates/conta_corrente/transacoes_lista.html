@@ -225,121 +225,102 @@
     <div class="text-muted">Sem transações para exibir.</div>
   {% endif %}
 
-  <!-- Paginação -->
-  {% if page_obj.paginator.num_pages > 1 %}
-    <nav aria-label="Paginação">
-      <ul class="pagination">
-        {% if page_obj.has_previous %}
-          <li class="page-item">
-            <a class="page-link" href="?{% if conta_id %}conta={{ conta_id }}&{% endif %}{% if periodo %}periodo={{ periodo }}&{% endif %}{% if ano %}ano={{ ano }}&{% endif %}{% if q %}q={{ q|urlencode }}&{% endif %}ord={{ ord }}&pagina={{ page_obj.previous_page_number }}">Anterior</a>
-          </li>
-        {% else %}
-          <li class="page-item disabled"><span class="page-link">Anterior</span></li>
-        {% endif %}
-
-        <li class="page-item disabled">
-          <span class="page-link">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
-        </li>
-
-        {% if page_obj.has_next %}
-          <li class="page-item">
-            <a class="page-link" href="?{% if conta_id %}conta={{ conta_id }}&{% endif %}{% if periodo %}periodo={{ periodo }}&{% endif %}{% if ano %}ano={{ ano }}&{% endif %}{% if q %}q={{ q|urlencode }}&{% endif %}ord={{ ord }}&pagina={{ page_obj.next_page_number }}">Próxima</a>
-          </li>
-        {% else %}
-          <li class="page-item disabled"><span class="page-link">Próxima</span></li>
-        {% endif %}
-      </ul>
-    </nav>
-  {% endif %}
-
-  {# ============ AGRUPAMENTO OCULTAS (igual às visíveis): Membro → Instituição → Conta ============ #}
+  {# ============ AGRUPAMENTO OCULTAS (Ignoradas pelas regras) ============ #}
   {% if itens_ocultas %}
     <hr class="my-4">
-    <h5 class="mb-3">Ignoradas pelas regras</h5>
-
-    {% regroup itens_ocultas by membro_nome as grupos_membro_o %}
-    {% for gm in grupos_membro_o %}
-      <div class="d-flex align-items-center mt-2 mb-2">
-        <h5 class="mb-0">{{ gm.grouper }}</h5>
-        <hr class="flex-grow-1 ms-3">
-      </div>
-
-      {% regroup gm.list by inst_nome_norm as grupos_inst_o %}
-      {% for gi in grupos_inst_o %}
-        <div class="d-flex align-items-center mt-2 mb-2">
-          <h6 class="mb-0">{{ gi.list.0.inst_titulo }}</h6>
-          <hr class="flex-grow-1 ms-3">
-        </div>
-
-        {% regroup gi.list by conta_numero as grupos_conta_o %}
-        {% for gc in grupos_conta_o %}
-          <div class="d-flex align-items-center mt-2 mb-1">
-            <div class="badge text-bg-info">Conta {{ gc.grouper }}</div>
-            <span class="text-muted small ms-2">({{ gc.list|length }} itens)</span>
-          </div>
-
-          <div class="table-responsive">
-            <table class="table table-sm align-middle table-bordered">
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Descrição</th>
-                  <th class="text-end">Valor</th>
-                  <th>Membros</th>
-                  <th style="width:1%">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item in gc.list %}
-                  {% with t=item.t %}
-                  <tr class="text-muted">
-                    <td>{{ t.data|date:"Y-m-d" }}</td>
-                    <td>{{ t.descricao }}</td>
-                    <td class="text-end {% if t.valor > 0 %}text-success{% elif t.valor < 0 %}text-danger{% endif %}">
-                      {{ t.valor|moeda_brasileira }}
-                    </td>
-                    <td>
-                      <div class="d-flex flex-wrap gap-2">
-                        {% if t.membros.all|length == membros|length and membros|length > 0 %}
-                          <span class="badge rounded-pill text-bg-primary">Todos</span>
-                        {% else %}
-                          <span class="badge rounded-pill text-bg-light border border-primary text-primary">Todos</span>
-                        {% endif %}
-                        {% for m in membros %}
-                          {% if m in t.membros.all %}
-                            <span class="badge rounded-pill text-bg-primary">{{ m.nome }}</span>
-                          {% else %}
-                            <span class="badge rounded-pill text-bg-light border border-primary text-primary">{{ m.nome }}</span>
-                          {% endif %}
+    <div class="accordion mb-4" id="accordionOcultas">
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="headingOcultas">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOcultas" aria-expanded="false" aria-controls="collapseOcultas">
+            Ignoradas pelas regras ({{ itens_ocultas|length }})
+          </button>
+        </h2>
+        <div id="collapseOcultas" class="accordion-collapse collapse" aria-labelledby="headingOcultas" data-bs-parent="#accordionOcultas">
+          <div class="accordion-body">
+            {% regroup itens_ocultas by membro_nome as grupos_membro_o %}
+            {% for gm in grupos_membro_o %}
+              <div class="d-flex align-items-center mt-2 mb-2">
+                <h5 class="mb-0">{{ gm.grouper }}</h5>
+                <hr class="flex-grow-1 ms-3">
+              </div>
+              {% regroup gm.list by inst_nome_norm as grupos_inst_o %}
+              {% for gi in grupos_inst_o %}
+                <div class="d-flex align-items-center mt-2 mb-2">
+                  <h6 class="mb-0">{{ gi.list.0.inst_titulo }}</h6>
+                  <hr class="flex-grow-1 ms-3">
+                </div>
+                {% regroup gi.list by conta_numero as grupos_conta_o %}
+                {% for gc in grupos_conta_o %}
+                  <div class="d-flex align-items-center mt-2 mb-1">
+                    <div class="badge text-bg-info">Conta {{ gc.grouper }}</div>
+                    <span class="text-muted small ms-2">({{ gc.list|length }} itens)</span>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table table-sm align-middle table-bordered">
+                      <thead>
+                        <tr>
+                          <th>Data</th>
+                          <th>Descrição</th>
+                          <th class="text-end">Valor</th>
+                          <th>Membros</th>
+                          <th style="width:1%">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for item in gc.list %}
+                          {% with t=item.t %}
+                          <tr class="text-muted">
+                            <td>{{ t.data|date:"Y-m-d" }}</td>
+                            <td>{{ t.descricao }}</td>
+                            <td class="text-end {% if t.valor > 0 %}text-success{% elif t.valor < 0 %}text-danger{% endif %}">
+                              {{ t.valor|moeda_brasileira }}
+                            </td>
+                            <td>
+                              <div class="d-flex flex-wrap gap-2">
+                                {% if t.membros.all|length == membros|length and membros|length > 0 %}
+                                  <span class="badge rounded-pill text-bg-primary">Todos</span>
+                                {% else %}
+                                  <span class="badge rounded-pill text-bg-light border border-primary text-primary">Todos</span>
+                                {% endif %}
+                                {% for m in membros %}
+                                  {% if m in t.membros.all %}
+                                    <span class="badge rounded-pill text-bg-primary">{{ m.nome }}</span>
+                                  {% else %}
+                                    <span class="badge rounded-pill text-bg-light border border-primary text-primary">{{ m.nome }}</span>
+                                  {% endif %}
+                                {% empty %}
+                                  <span class="text-muted small">Sem membros cadastrados</span>
+                                {% endfor %}
+                              </div>
+                            </td>
+                            <td class="text-nowrap">
+                              {% if t.oculta_manual %}
+                                <form method="post" action="{% url 'conta_corrente:transacao_toggle_oculta' t.id %}">
+                                  {% csrf_token %}
+                                  <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
+                                  <button class="btn btn-sm btn-outline-primary" title="Reexibir este lançamento">
+                                    Reexibir
+                                  </button>
+                                </form>
+                              {% else %}
+                                <span class="text-muted small" title="Ocultada por regra">por regra</span>
+                              {% endif %}
+                            </td>
+                          </tr>
+                          {% endwith %}
                         {% empty %}
-                          <span class="text-muted small">Sem membros cadastrados</span>
+                          <tr><td colspan="5" class="text-center text-muted">Nenhum lançamento nesta conta.</td></tr>
                         {% endfor %}
-                      </div>
-                    </td>
-                    <td class="text-nowrap">
-                      {% if t.oculta_manual %}
-                        <form method="post" action="{% url 'conta_corrente:transacao_toggle_oculta' t.id %}">
-                          {% csrf_token %}
-                          <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-                          <button class="btn btn-sm btn-outline-primary" title="Reexibir este lançamento">
-                            Reexibir
-                          </button>
-                        </form>
-                      {% else %}
-                        <span class="text-muted small" title="Ocultada por regra">por regra</span>
-                      {% endif %}
-                    </td>
-                  </tr>
-                  {% endwith %}
-                {% empty %}
-                  <tr><td colspan="5" class="text-center text-muted">Nenhum lançamento nesta conta.</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
                 {% endfor %}
-              </tbody>
-            </table>
+              {% endfor %}
+            {% endfor %}
           </div>
-        {% endfor %}
-      {% endfor %}
-    {% endfor %}
+        </div>
+      </div>
+    </div>
   {% endif %}
 
 </div>

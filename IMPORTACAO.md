@@ -36,7 +36,11 @@ python manage.py importar_ofx f:\sistemas\financas\data\conta_corrente\andrea\20
 - O primeiro argumento (`bb`) é o nome da instituição.
 - O segundo argumento é o diretório onde estão os arquivos `.ofx`.
 
----
+**rodar as regras de ocultacao depois da importacao**
+```sh
+python manage.py aplicar_regras_ocultacao
+
+```
 
 ## 3. Importar apenas saldos da conta corrente (OFX)
 
