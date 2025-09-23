@@ -260,7 +260,11 @@ class Command(BaseCommand):
             pasta_base = caminho.parent
         elif caminho.is_dir():
             arquivos = sorted(caminho.rglob("*.ofx"))
-            pasta_base = caminho
+            # Se houver arquivos, pega a pasta do primeiro arquivo (onde está o código da instituição)
+            if arquivos:
+                pasta_base = arquivos[0].parent
+            else:
+                pasta_base = caminho
         else:
             raise CommandError(f"Caminho não encontrado ou inválido: {caminho}")
 
@@ -268,11 +272,20 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"⚠ Nenhum OFX encontrado em {caminho}"))
             return
 
+        print("Arquivos OFX encontrados:", arquivos)
+
         # Tenta inferir InstituiçãoFinanceira pelo nome da pasta ou arquivo
+        print("Instituições financeiras cadastradas:")
+        for inst_obj in InstituicaoFinanceira.objects.all():
+            print(f"  - id={inst_obj.id}, nome={inst_obj.nome}, codigo={inst_obj.codigo}")
+
         inst = None
-        for seg in reversed(caminho.parts):
+        for seg in reversed(pasta_base.parts):
+            seg_clean = seg.strip().lower()
+            print(f"Tentando encontrar instituição com código: {seg_clean}")
             try:
-                inst = InstituicaoFinanceira.objects.get(codigo__iexact=seg)
+                inst = InstituicaoFinanceira.objects.get(codigo__iexact=seg_clean)
+                print(f"Instituição encontrada: {inst.nome} (codigo={inst.codigo})")
                 break
             except InstituicaoFinanceira.DoesNotExist:
                 continue
@@ -370,20 +383,25 @@ class Command(BaseCommand):
 
                     if not dry_run:
                         with transaction.atomic():
-                            # Busca por conta, data e valor
+                            # Busca por conta, fitid
                             obj, created = Transacao.objects.update_or_create(
+                                conta=conta,
+                                fitid=fitid_para_usar,
+                                defaults={
+                                    "data": data,
+                                    "valor": valor,
+                                    "descricao": descricao_normalizada,
+                                },
+                            )
+                            # Verifica se já existe uma transação igual por conta, data, valor
+                            duplicatas = Transacao.objects.filter(
                                 conta=conta,
                                 data=data,
                                 valor=valor,
-                                defaults={
-                                    "descricao": descricao_normalizada,
-                                    "fitid": fitid_para_usar,
-                                },
-                            )
-                            if created:
-                                print(f"CRIADA: conta={conta.id}, data={data}, valor={valor}")
-                            else:
-                                print(f"ATUALIZADA: conta={conta.id}, data={data}, valor={valor}")
+                            ).exclude(id=obj.id)
+                            if duplicatas.exists():
+                                print(f"⚠️ Duplicidade detectada! Pulando transação: {data}, {valor}, {descricao_normalizada}")
+                                continue
                             try:
                                 _aplicar_regras_membro_se_vazio(obj, regras_cache)
                             except Exception:
