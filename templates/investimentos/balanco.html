@@ -1,194 +1,138 @@
 {% extends "base.html" %}
 {% load moeda_brasileira from formatadores %}
+{% load get_item %}
 
 {% block content %}
 <div class="container py-4">
 
-  <h1 class="h4 mb-3">Balanço Patrimonial</h1>
+  <h1 class="h4 mb-4">Balanço Patrimonial</h1>
 
-  <!-- Ativos: Investimentos -->
-  <h2 class="h5 mt-4 mb-2">Investimentos</h2>
-  <form id="form-ocultar-investimentos" onsubmit="return false;">
-    <div class="table-responsive mb-4">
-      <table class="table table-sm align-middle" id="tabela-investimentos">
-        <thead>
-          <tr>
-            <th></th>
-            <th>Instituição</th>
-            <th>Nome</th>
-            <th>Membro</th>
-            <th class="text-end">Saldo</th>
-            <th class="text-end">Data</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for inv in investimentos %}
-          {% with ultimo=inv.saldo_mais_recente %}
-          <tr data-valor="{{ ultimo.valor|default:0 }}">
-            <td>
-              <input type="checkbox" class="ocultar-investimento" checked>
-            </td>
-            <td>{{ inv.instituicao.nome }}</td>
-            <td>{{ inv.nome }}</td>
-            <td>{{ inv.membro }}</td>
-            <td class="text-end">
-              {% if ultimo %}{{ ultimo.valor|moeda_brasileira }}{% else %}—{% endif %}
-            </td>
-            <td class="text-end">
-              {% if ultimo %}{{ ultimo.data|date:"d/m/Y" }}{% else %}—{% endif %}
-            </td>
-            <td class="text-end">
-              <a class="btn btn-outline-primary btn-sm"
-                 href="{% url 'investimentos:investimento_detalhe' inv.pk %}">Detalhes</a>
-            </td>
-          </tr>
-          {% endwith %}
-        {% empty %}
-          <tr><td colspan="7" class="text-center text-muted py-4">Nenhum investimento.</td></tr>
-        {% endfor %}
-        </tbody>
-        <tfoot>
-          <tr class="fw-semibold">
-            <td colspan="4" class="text-end">Total Investimentos</td>
-            <td class="text-end" id="total-investimentos">{{ total_investimentos|moeda_brasileira }}</td>
-            <td colspan="2"></td>
-          </tr>
-        </tfoot>
-      </table>
-      <button class="btn btn-outline-secondary mt-2" onclick="recalcularTotais()">Recalcular Totais</button>
+  <div class="row">
+    {% for membro, investimentos_do_membro in investimentos_por_membro %}
+      <div class="col-md-6 mb-4">
+        <div class="card shadow-sm">
+          <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">{{ membro.nome }}</h5>
+          </div>
+          <div class="card-body">
+
+            <h6 class="mt-2">Ativos</h6>
+            <table class="table table-sm table-bordered mb-3">
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Nome / Instituição</th>
+                  <th class="text-end">Saldo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for inv in investimentos_do_membro %}
+                  <tr>
+                    <td>Investimento</td>
+                    <td>{{ inv.obj.nome }}</td>
+                    <td class="text-end">{{ inv.saldo_mais_recente.valor|default:"0"|moeda_brasileira }}</td>
+                  </tr>
+                {% endfor %}
+                {% for conta in contas_por_membro|get_item:membro %}
+                  <tr>
+                    <td>Conta</td>
+                    <td>{{ conta.obj.instituicao.nome }}</td>
+                    <td class="text-end">{{ conta.saldo_mais_recente.valor|default:"0"|moeda_brasileira }}</td>
+                  </tr>
+                {% endfor %}
+                {% if not investimentos_do_membro and not contas_por_membro|get_item:membro %}
+                  <tr><td colspan="3" class="text-muted text-center">Nenhum ativo</td></tr>
+                {% endif %}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th colspan="2">Total ativos</th>
+                  <th class="text-end">
+                    {% with inv=total_investimentos_por_membro|get_item:membro cont=total_contas_por_membro|get_item:membro %}
+                      {% with total_ativos=inv|add:cont %}
+                        {{ total_ativos|moeda_brasileira }}
+                      {% endwith %}
+                    {% endwith %}
+                  </th>
+                </tr>
+              </tfoot>
+            </table>
+
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="row mb-5">
+    <div class="col-md-8 mx-auto">
+      <div class="card border-danger">
+        <div class="card-header bg-danger text-white">
+          <h5 class="mb-0">Passivos</h5>
+        </div>
+        <div class="card-body">
+          <table class="table table-sm table-bordered">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th class="text-end">Valor Devido</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for passivo in passivos %}
+                <tr>
+                  <td>{{ passivo.obj.nome }}</td>
+                  <td class="text-end">
+                    {{ passivo.saldo_mais_recente.valor_devido|default:"0"|moeda_brasileira }}
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="2" class="text-muted text-center">Nenhum passivo</td></tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th>Total</th>
+                <th class="text-end">{{ total_passivos_geral|moeda_brasileira }}</th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
     </div>
-  </form>
-
-  <!-- Ativos: Contas Correntes -->
-  <h2 class="h5 mt-4 mb-2">Contas Correntes</h2>
-  <div class="table-responsive mb-4">
-    <table class="table table-sm align-middle">
-      <thead>
-        <tr>
-          <th>Membro</th>
-          <th>Instituição</th>
-          <th>Número</th>
-          <th>Agência</th>
-          <th class="text-end">Saldo</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for conta in contas|dictsort:"membro.nome" %}
-        {% with saldo=conta.saldos.first %}
-        <tr>
-          <td>{{ conta.membro }}</td>
-          <td>{{ conta.instituicao.nome }}</td>
-          <td>{{ conta.numero }}</td>
-          <td>{{ conta.agencia }}</td>
-          <td class="text-end">
-            {% if saldo %}
-              {{ saldo.valor|moeda_brasileira }}
-            {% else %}
-              —
-            {% endif %}
-          </td>
-        </tr>
-        {% endwith %}
-      {% empty %}
-        <tr><td colspan="5" class="text-center text-muted py-4">Nenhuma conta corrente.</td></tr>
-      {% endfor %}
-      </tbody>
-      {% if contas %}
-      <tfoot>
-        <tr class="fw-semibold">
-          <td colspan="4" class="text-end">Total Contas Correntes</td>
-          <td class="text-end" id="total-contas" data-valor="{{ total_contas|default:0 }}">{{ total_contas|moeda_brasileira }}</td>
-        </tr>
-      </tfoot>
-      {% endif %}
-    </table>
   </div>
 
-  <!-- Passivos: Empréstimos/Financiamentos -->
-  <h2 class="h5 mt-4 mb-2">Passivos</h2>
-  <div class="table-responsive mb-4">
-    <table class="table table-sm align-middle">
-      <thead>
-        <tr>
-          <th>Nome</th>
-          <th class="text-end">Saldo Devedor</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for passivo in passivos %}
-        {% with saldo=passivo.saldos.first %}
-        <tr>
-          <td>{{ passivo.nome }}</td>
-          <td class="text-end">
-            {% if saldo %}
-              {{ saldo.valor_devido|moeda_brasileira }}
-            {% else %}
-              —
-            {% endif %}
-          </td>
-        </tr>
-        {% endwith %}
-      {% empty %}
-        <tr><td colspan="2" class="text-center text-muted py-4">Nenhum passivo.</td></tr>
-      {% endfor %}
-      </tbody>
-      {% if passivos %}
-      <tfoot>
-        <tr class="fw-semibold">
-          <td class="text-end">Total Passivos</td>
-          <td class="text-end">{{ total_passivos|moeda_brasileira }}</td>
-        </tr>
-      </tfoot>
-      {% endif %}
-    </table>
-  </div>
-
-  <!-- Patrimônio Líquido -->
-  <div class="card mt-4 mb-5">
-    <div class="card-body d-flex flex-column flex-md-row justify-content-between align-items-center">
-      <div>
-        <span class="fw-semibold">Total de Ativos:</span>
-        <span class="ms-2" id="total-ativos">{{ total_ativos|moeda_brasileira }}</span>
-      </div>
-      <div>
-        <span class="fw-semibold">Total de Passivos:</span>
-        <span class="ms-2" id="total-passivos" data-valor="{{ total_passivos|default:0 }}">{{ total_passivos|moeda_brasileira }}</span>
-      </div>
-      <div>
-        <span class="fw-semibold">Patrimônio Líquido:</span>
-        <span class="ms-2" id="patrimonio-liquido">{{ patrimonio_liquido|moeda_brasileira }}</span>
+  <div class="row mb-5">
+    <div class="col-md-8 mx-auto">
+      <div class="card border-success">
+        <div class="card-header bg-success text-white">
+          <h5 class="mb-0">Totais Gerais</h5>
+        </div>
+        <div class="card-body">
+          <table class="table table-sm table-bordered">
+            <tbody>
+              <tr>
+                <th>Total geral investimentos</th>
+                <td class="text-end">{{ total_investimentos_geral|moeda_brasileira }}</td>
+              </tr>
+              <tr>
+                <th>Total geral contas</th>
+                <td class="text-end">{{ total_contas_geral|moeda_brasileira }}</td>
+              </tr>
+              <tr>
+                <th>Total geral passivos</th>
+                <td class="text-end">{{ total_passivos_geral|moeda_brasileira }}</td>
+              </tr>
+              <tr class="table-success">
+                <th>Patrimônio líquido geral</th>
+                <td class="text-end fw-bold">{{ patrimonio_liquido_geral|moeda_brasileira }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
 
 </div>
-<script>
-function moedaBr(valor) {
-  return "R$ " + Number(valor).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-}
-
-function recalcularTotais() {
-  let totalInvest = 0;
-  document.querySelectorAll("#tabela-investimentos tbody tr").forEach(function(row) {
-    const checkbox = row.querySelector(".ocultar-investimento");
-    const valor = parseFloat(row.getAttribute("data-valor")) || 0;
-    if (checkbox && checkbox.checked) {
-      totalInvest += valor;
-      row.style.opacity = "1";
-    } else {
-      row.style.opacity = "0.5";
-    }
-  });
-  document.getElementById("total-investimentos").textContent = moedaBr(totalInvest);
-
-  // Recalcula total de ativos e patrimônio líquido
-  const totalContas = parseFloat(document.getElementById("total-contas").getAttribute("data-valor")) || 0;
-  const totalPassivos = parseFloat(document.getElementById("total-passivos").getAttribute("data-valor")) || 0;
-  const totalAtivos = totalInvest + totalContas;
-  const patrimonio = totalAtivos - totalPassivos;
-  document.getElementById("total-ativos").textContent = moedaBr(totalAtivos);
-  document.getElementById("patrimonio-liquido").textContent = moedaBr(patrimonio);
-}
-</script>
 {% endblock %}

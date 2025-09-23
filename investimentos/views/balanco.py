@@ -1,71 +1,100 @@
-from django.contrib import messages
+from decimal import Decimal
+from collections import defaultdict
 from django.db.models import Prefetch
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 
 from ..models import Investimento, SaldoInvestimento
 from conta_corrente.models import Conta, Saldo
-from passivos.models import Passivo, SaldoPassivo  # ajuste aqui
-from ..forms import SaldoInvestimentoForm
+from passivos.models import Passivo, SaldoPassivo
 
 
 @require_http_methods(["GET"])
 def balanco(request):
-    # Investimentos
+    # Investimentos agrupados por membro
+    membros = []
+    investimentos_por_membro = defaultdict(list)
+    total_investimentos_por_membro = defaultdict(lambda: Decimal("0"))
+    total_investimentos_geral = Decimal("0")
+
     investimentos = (
         Investimento.objects.filter(ativo=True)
         .select_related("instituicao", "membro")
         .prefetch_related(
-            Prefetch("saldos", queryset=SaldoInvestimento.objects.order_by("-data"))
+            Prefetch("saldos", queryset=SaldoInvestimento.objects.order_by("-data", "-id"))
         )
-        .order_by("instituicao__nome", "nome")
+        .order_by("membro__nome", "instituicao__nome", "nome")
     )
-    total_investimentos = 0
-    for inv in investimentos:
-        ultimo = inv.saldo_mais_recente
-        if ultimo:
-            total_investimentos += ultimo.valor
 
-    # Contas Correntes
+    investimentos_context = []
+    for inv in investimentos:
+        saldo_mais_recente = inv.saldos.first()
+        membro = inv.membro
+        if membro not in membros:
+            membros.append(membro)
+        investimentos_por_membro[membro].append({
+            "obj": inv,
+            "saldo_mais_recente": saldo_mais_recente,
+        })
+        valor = saldo_mais_recente.valor if saldo_mais_recente else Decimal("0")
+        total_investimentos_por_membro[membro] += valor
+        total_investimentos_geral += valor
+
+    # Contas agrupadas por membro
+    contas_por_membro = defaultdict(list)
+    total_contas_por_membro = defaultdict(lambda: Decimal("0"))
+    total_contas_geral = Decimal("0")
+
     contas = (
         Conta.objects.all()
         .select_related("instituicao", "membro")
-        .order_by("instituicao__nome", "numero")
+        .order_by("membro__nome", "instituicao__nome", "numero")
     )
 
-    def saldo_mais_recente_conta(conta):
-        saldo = Saldo.objects.filter(conta=conta).order_by("-data", "-id").first()
-        return saldo.valor if saldo else 0
+    for conta in contas:
+        saldo_mais_recente = Saldo.objects.filter(conta=conta).order_by("-data", "-id").first()
+        membro = conta.membro
+        contas_por_membro[membro].append({
+            "obj": conta,
+            "saldo_mais_recente": saldo_mais_recente,
+        })
+        valor = saldo_mais_recente.valor if saldo_mais_recente else Decimal("0")
+        total_contas_por_membro[membro] += valor
+        total_contas_geral += valor
 
-    total_contas = sum(saldo_mais_recente_conta(c) for c in contas)
-
-    # Passivos
+    # Passivos: lista única
     passivos = (
         Passivo.objects.filter(ativo=True)
         .prefetch_related(
-            Prefetch("saldos", queryset=SaldoPassivo.objects.order_by("-data"))
+            Prefetch("saldos", queryset=SaldoPassivo.objects.order_by("-data", "-id"))
         )
         .order_by("nome")
     )
+    passivos_context = []
+    total_passivos_geral = Decimal("0")
+    for passivo in passivos:
+        saldo_mais_recente = passivo.saldos.first()
+        passivos_context.append({
+            "obj": passivo,
+            "saldo_mais_recente": saldo_mais_recente,
+        })
+        valor = saldo_mais_recente.valor_devido if saldo_mais_recente else Decimal("0")
+        total_passivos_geral += valor
 
-    def saldo_mais_recente_passivo(passivo):
-        saldo = SaldoPassivo.objects.filter(passivo=passivo).order_by("-data", "-id").first()
-        return saldo.valor_devido if saldo else 0
-
-    total_passivos = sum(saldo_mais_recente_passivo(p) for p in passivos)
-
-    total_ativos = total_investimentos + total_contas
-    patrimonio_liquido = total_ativos - total_passivos
+    total_ativos_geral = total_investimentos_geral + total_contas_geral
+    patrimonio_liquido_geral = total_ativos_geral - total_passivos_geral
 
     contexto = {
-        "investimentos": investimentos,
-        "contas": contas,
-        "passivos": passivos,
-        "total_investimentos": total_investimentos,
-        "total_contas": total_contas,
-        "total_passivos": total_passivos,
-        "total_ativos": total_ativos,
-        "patrimonio_liquido": patrimonio_liquido,
+        "investimentos_por_membro": [(m, investimentos_por_membro[m]) for m in membros],
+        "total_investimentos_por_membro": total_investimentos_por_membro,
+        "total_investimentos_geral": total_investimentos_geral,
+        "contas_por_membro": contas_por_membro,
+        "total_contas_por_membro": total_contas_por_membro,
+        "total_contas_geral": total_contas_geral,
+        "passivos": passivos_context,
+        "total_passivos_geral": total_passivos_geral,
+        "total_ativos_geral": total_ativos_geral,
+        "patrimonio_liquido_geral": patrimonio_liquido_geral,
     }
     return render(request, "investimentos/balanco.html", contexto)
 
