@@ -458,4 +458,18 @@ class Command(BaseCommand):
                 data=tx["data"],
                 valor=tx["valor"],
             ).count()
-            assert count <= 1, f"Duplicidade detectada! {tx}"
+            if count > 1:
+                print(f"\n⚠️ Duplicidade detectada! {tx}")
+                resp = input("Deseja manter a duplicidade? (s/N): ").strip().lower()
+                if resp != "s":
+                    # Remove a última transação criada
+                    dupes = Transacao.objects.filter(
+                        conta_id=tx["conta"],
+                        data=tx["data"],
+                        valor=tx["valor"],
+                    ).order_by("-id")
+                    if dupes.exists():
+                        print(f"Removendo transação id={dupes.first().id}")
+                        dupes.first().delete()
+                else:
+                    print("Duplicidade mantida.")
