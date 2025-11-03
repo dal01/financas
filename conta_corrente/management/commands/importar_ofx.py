@@ -17,6 +17,7 @@ from ofxparse import OfxParser
 from core.models import InstituicaoFinanceira, Membro
 from conta_corrente.models import Conta, Transacao, Saldo
 from conta_corrente.models import RegraMembro
+from conta_corrente.utils.formatacao import formatar_descricao_transacao
 
 from unidecode import unidecode
 
@@ -108,33 +109,27 @@ def preprocess_ofx(content_bytes: bytes) -> bytes:
 # ---------------------------
 def _compose_descricao(tx) -> str:
     """
-    Monta uma descrição curta e informativa. Limite 255 chars.
-    Ordem de preferência de ofxparse.Transaction:
-      - NAME (ou payee)
-      - MEMO
-      - CHECKNUM
-      - TYPE (se útil)
+    Monta uma descrição curta e informativa usando a função centralizada.
     """
-    partes: list[str] = []
-
-    # Alguns extratos populam payee, outros name
-    name = getattr(tx, "name", None) or getattr(tx, "payee", None)
-    memo = getattr(tx, "memo", None)
+    name = getattr(tx, "name", None) or getattr(tx, "payee", None) or ""
+    memo = getattr(tx, "memo", None) or ""
     checknum = getattr(tx, "checknum", None)
     ttype = getattr(tx, "type", None)
-
-    if name:
-        partes.append(str(name).strip())
-    if memo and str(memo).strip() and (not name or str(memo).strip() != str(name).strip()):
-        partes.append(str(memo).strip())
+    
+    # Usa a função centralizada
+    descricao = formatar_descricao_transacao(name=name, memo=memo)
+    
+    # Adiciona cheque e tipo se necessário
+    partes_extras = []
     if checknum:
-        partes.append(f"cheque {checknum}")
-    # evita poluir com tipos genéricos repetidos
+        partes_extras.append(f"cheque {checknum}")
     if ttype and str(ttype).strip().lower() not in {"other", "debit", "credit"}:
-        partes.append(str(ttype).strip())
-
-    descr = " — ".join(p for p in partes if p)[:255]
-    return descr or ""
+        partes_extras.append(str(ttype).strip())
+    
+    if partes_extras:
+        descricao = f"{descricao} - {' - '.join(partes_extras)}"
+    
+    return descricao[:255] or ""
 
 
 def _fitid_unique_real(original_fitid: str, data: date, valor: Decimal) -> str:
