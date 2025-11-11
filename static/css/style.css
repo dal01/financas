@@ -1,0 +1,144 @@
+/* === BASE === */
+html, body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: "Nunito", sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+* { box-sizing: border-box; }
+
+/* === SURFACES / CARDS === */
+.surface-card,
+.card {
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  padding: var(--gap-md);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.surface-card.elevated,
+.card.elevated {
+  box-shadow: var(--shadow-sm);
+}
+
+.surface-card:hover,
+.card:hover {
+  transform: translateY(-3px);
+}
+
+/* === TABELAS === */
+.table {
+  border: 1px solid var(--surface-border);
+  color: var(--text-primary);
+}
+
+.table thead th {
+  background: var(--surface-2);
+}
+
+.table tbody tr:nth-child(odd) td {
+  background: var(--surface-1);
+}
+
+.table tbody tr:nth-child(even) td {
+  background: var(--surface-striped);
+}
+
+.table-hover tbody tr:hover td {
+  background: var(--surface-3);
+}
+
+.table td, .table th {
+  border: 1px solid var(--surface-border);
+}
+
+/* === BOTÕES === */
+.btn-primary {
+  background: var(--color-accent);
+  border: 1px solid transparent;
+  color: #fff;
+  font-weight: 600;
+  padding: .5rem .75rem;
+  border-radius: var(--radius-md);
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background: var(--color-accent-hover);
+}
+
+.btn-outline-secondary {
+  color: var(--text-primary);
+  border-color: var(--surface-border);
+}
+
+.btn-outline-secondary:hover {
+  background: var(--surface-2);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* === FORMULÁRIOS === */
+.form-control,
+.form-select,
+textarea {
+  background-color: var(--surface-1);
+  color: var(--text-primary);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.form-control:focus,
+.form-select:focus,
+textarea:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 0.18rem rgba(60, 130, 246, 0.25);
+  outline: none;
+}
+
+::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.65;
+}
+
+/* === MODAIS === */
+.modal-content {
+  background-color: var(--surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.modal-header,
+.modal-footer {
+  background-color: var(--surface-1);
+  border-color: var(--surface-border);
+}
+
+/* === ALERTAS === */
+.alert-info {
+  background-color: rgba(124, 136, 255, 0.15);
+  color: var(--text-primary);
+}
+
+.alert-success {
+  background-color: rgba(64, 209, 167, 0.15);
+  color: var(--text-primary);
+}
+
+/* === PAGINAÇÃO === */
+.pagination .page-link {
+  color: var(--text-primary);
+  border-color: var(--surface-border);
+  background-color: var(--surface-1);
+}
+
+.pagination .page-link:hover {
+  background: var(--surface-2);
+  color: var(--color-accent);
+}

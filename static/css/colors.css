@@ -1,0 +1,83 @@
+/* =================== MODO ESCURO =================== */
+:root {
+  /* Surfaces */
+  --surface-0: #0F1116;   /* fundo principal */
+  --surface-1: #16181C;   /* navbar, containers, tbody */
+  --surface-2: #1F2226;   /* cards, thead */
+  --surface-3: #2A2E33;   /* hover, destaques */
+  --surface-striped: #1A1C20; /* linhas alternadas da tabela */
+
+  /* Textos */
+  --text-primary: #E6EEF8;
+  --text-secondary: rgba(230, 238, 248, 0.7);
+
+  /* Accent */
+  --color-accent: #3C82F6;
+  --color-accent-hover: #5A97FF;
+
+  /* Status */
+  --accent-success: #40D1A7;
+  --accent-warning: #FFB86B;
+  --accent-danger:  #FF6B6B;
+  --accent-info:    #7C88FF;
+
+  /* Badges */
+  --badge-primary: var(--color-accent);
+  --badge-info: var(--accent-info);
+  --badge-warning: var(--accent-warning);
+  --badge-success: var(--accent-success);
+  --badge-danger: var(--accent-danger);
+
+  /* Bordas e sombras */
+  --surface-border: rgba(255,255,255,0.04);
+  --radius-md: 6px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.45);
+  --shadow-md: 0 6px 18px rgba(2,6,23,0.55);
+
+  /* Espaçamento / Transição */
+  --gap-sm: .5rem;
+  --gap-md: 1rem;
+  --transition-fast: 180ms;
+}
+
+/* =================== MODO CLARO =================== */
+body.light-mode {
+  /* Surfaces */
+  --surface-0: #ffffff; /* fundo principal */
+  --surface-1: #f8f9fa; /* containers / tbody */
+  --surface-2: #e9ecef; /* cards / thead */
+  --surface-3: #dee2e6; /* hover / destaques */
+  --surface-striped: #f1f3f5;
+
+  /* Textos */
+  --text-primary: #000000;
+  --text-secondary: rgba(0,0,0,0.7);
+
+  /* Accent */
+  --color-accent: #3C82F6;
+  --color-accent-hover: #5A97FF;
+
+  /* Status */
+  --accent-success: #40D1A7;
+  --accent-warning: #FFB86B;
+  --accent-danger:  #FF6B6B;
+  --accent-info:    #7C88FF;
+
+  /* Badges */
+  --badge-primary: var(--color-accent);
+  --badge-info: var(--accent-info);
+  --badge-warning: var(--accent-warning);
+  --badge-success: var(--accent-success);
+  --badge-danger: var(--accent-danger);
+
+  /* Bordas e sombras */
+  --surface-border: rgba(0,0,0,0.08);
+  --radius-md: 6px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 6px 18px rgba(0,0,0,0.2);
+
+  /* Espaçamento / Transição */
+  --gap-sm: .5rem;
+  --gap-md: 1rem;
+  --transition-fast: 180ms;
+}

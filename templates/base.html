@@ -1,6 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-br" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -12,23 +12,35 @@
         integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
         crossorigin="anonymous">
 
+  <!-- Seu CSS customizado -->
+  <link href="{% static 'css/colors.css' %}" rel="stylesheet">
+  <link href="{% static 'css/style.css' %}" rel="stylesheet">
+
   {% block extra_css %}{% endblock %}
 </head>
-<body>
+<body class="{% if tema == 'claro' %}light-mode{% endif %}">
 
 <!-- Banner de ambiente -->
-<div style="position:fixed;right:8px;bottom:8px;
-            background:#222;color:#fff;padding:6px 12px;
-            border-radius:6px;opacity:0.8;z-index:9999;
-            font:600 13px/1.3 system-ui">
+<div class="position-fixed end-0 bottom-0 bg-dark text-light px-3 py-1 rounded opacity-75 fw-semibold"
+     style="z-index:9999;font-size:0.85rem;">
   Ambiente: {{ APP_ENV|upper }}
   {% if APP_DEBUG %} • DEBUG{% endif %}
 </div>
 
 <!-- Navbar -->
-<nav class="navbar navbar-expand-lg navbar-light bg-body-tertiary mb-4 shadow-sm">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm mb-4">
   <div class="container">
-    <a class="navbar-brand fw-semibold" href="{% url 'conta_corrente:transacoes_lista' %}">Finanças</a>
+    <a class="navbar-brand fw-semibold" href="{% url 'conta_corrente:transacoes_lista' %}">
+      💰 Finanças
+    </a>
+    
+    <!-- Botão de toggle do tema -->
+    <div class="d-flex align-items-center me-3">
+      <button id="theme-toggle" class="btn btn-outline-light btn-sm" type="button" title="Alternar tema">
+        <span id="theme-icon">🌙</span>
+      </button>
+    </div>
+    
     <button class="navbar-toggler" type="button"
             data-bs-toggle="collapse" data-bs-target="#navMain"
             aria-controls="navMain" aria-expanded="false" aria-label="Alternar navegação">
@@ -66,21 +78,9 @@
             Relatórios
           </a>
           <ul class="dropdown-menu" aria-labelledby="relatoriosDropdown">
-            <li>
-              <a class="dropdown-item" href="{% url 'relatorios:resumo_anual' %}">
-                Gastos por Membro (Anual)
-              </a>
-            </li>
-            <li>
-              <a class="dropdown-item" href="{% url 'relatorios:gastos_por_categoria' %}">
-                Gastos por Categoria
-              </a>
-            </li>
-            <li>
-              <a class="dropdown-item" href="{% url 'relatorios:dashboard' %}">
-                Dashboard Financeiro
-              </a>
-            </li>
+            <li><a class="dropdown-item" href="{% url 'relatorios:resumo_anual' %}">Gastos por Membro (Anual)</a></li>
+            <li><a class="dropdown-item" href="{% url 'relatorios:gastos_por_categoria' %}">Gastos por Categoria</a></li>
+            <li><a class="dropdown-item" href="{% url 'relatorios:dashboard' %}">Dashboard Financeiro</a></li>
           </ul>
         </li>
 
@@ -94,7 +94,6 @@
           </ul>
         </li>
 
-        <!-- Classificação (inbox de categorias) -->
         <li class="nav-item">
           <a class="nav-link" href="{% url 'classificacao_gastos' %}">Classificação</a>
         </li>
@@ -105,11 +104,7 @@
             Investimentos
           </a>
           <ul class="dropdown-menu" aria-labelledby="investDropdown">
-            <li>
-              <a class="dropdown-item" href="{% url 'investimentos:balanco' %}">
-                Balanço Patrimonial
-              </a>
-            </li>
+            <li><a class="dropdown-item" href="{% url 'investimentos:balanco' %}">Balanço Patrimonial</a></li>
           </ul>
         </li>
 
@@ -126,13 +121,15 @@
   {% if messages %}
     <div class="mb-3">
       {% for message in messages %}
-        {% if message.level_tag == "error" %}
-          <div class="alert alert-danger mb-2" role="alert">{{ message }}</div>
-        {% else %}
-          <div class="alert alert-{{ message.level_tag|default:"secondary" }} mb-2" role="alert">
-            {{ message }}
-          </div>
-        {% endif %}
+        <div class="alert 
+          {% if message.level_tag == 'error' %}alert-danger
+          {% elif message.level_tag == 'success' %}alert-success
+          {% elif message.level_tag == 'info' %}alert-info
+          {% else %}alert-secondary
+          {% endif %}
+          mb-2" role="alert">
+          {{ message }}
+        </div>
       {% endfor %}
     </div>
   {% endif %}
@@ -144,6 +141,43 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
         integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
         crossorigin="anonymous"></script>
+
+<!-- Script para alternar tema -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const themeToggle = document.getElementById('theme-toggle');
+  const themeIcon = document.getElementById('theme-icon');
+  const htmlElement = document.documentElement;
+  const bodyElement = document.body;
+
+  // Recupera tema salvo ou usa dark como padrão
+  const savedTheme = localStorage.getItem('theme') || 'dark';
+  
+  function setTheme(theme) {
+    if (theme === 'light') {
+      htmlElement.setAttribute('data-bs-theme', 'light');
+      bodyElement.classList.add('light-mode');
+      themeIcon.textContent = '☀️';
+      localStorage.setItem('theme', 'light');
+    } else {
+      htmlElement.setAttribute('data-bs-theme', 'dark');
+      bodyElement.classList.remove('light-mode');
+      themeIcon.textContent = '🌙';
+      localStorage.setItem('theme', 'dark');
+    }
+  }
+
+  // Aplica tema inicial
+  setTheme(savedTheme);
+
+  // Toggle do tema
+  themeToggle.addEventListener('click', function() {
+    const currentTheme = htmlElement.getAttribute('data-bs-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+  });
+});
+</script>
 
 {% block extra_js %}{% endblock %}
 </body>
