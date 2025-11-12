@@ -80,6 +80,17 @@ def resumo_mensal(request):
     qs = transacoes_periodo(qs, start, end)
 
 
+    # Depois de:
+    qs = transacoes_visiveis(qs)
+    qs = transacoes_periodo(qs, start, end)
+
+    # ---------------- DEBUG: entradas de setembro de Dalton ----------------
+    for t in qs:
+        if t.conta and t.conta.membro and t.conta.membro.nome.lower() == "dalton":
+            if t.valor > 0 and t.data.month == 9:  # apenas entradas de setembro
+                print(f"ID={t.id}, valor={t.valor}, data={t.data}, conta={t.conta.id}, desc='{t.descricao}'")
+
+
     # -----------------------------
     # Séries mensais (geral)
     # -----------------------------

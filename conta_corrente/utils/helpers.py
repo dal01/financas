@@ -18,6 +18,7 @@ def normalizar_data(d):
         return d.strip()
     return None
 
+
 def total_entradas(
     data_ini: str,
     data_fim: str,
@@ -31,13 +32,16 @@ def total_entradas(
         oculta=False,
         oculta_manual=False
     )
+    
     if instituicoes:
         qs = qs.filter(conta__instituicao_id__in=list(instituicoes))
     if membros:
         qs = qs.filter(membros__id__in=list(membros))
 
     total = qs.aggregate(soma_receita=Sum("valor"))["soma_receita"] or Decimal("0")
+
     return total
+
 
 
 

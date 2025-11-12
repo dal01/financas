@@ -109,6 +109,7 @@ def listar_transacoes(request):
         else:
             transacoes_visiveis.append(t)
 
+
     # -------- Totais gerais (nível transação; não duplica por membro) --------
     entradas = sum((t.valor for t in transacoes_visiveis if t.valor > 0), Decimal("0"))
     saidas = sum((t.valor for t in transacoes_visiveis if t.valor < 0), Decimal("0"))

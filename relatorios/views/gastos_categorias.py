@@ -103,13 +103,28 @@ def gastos_categorias(request: HttpRequest) -> HttpResponse:
         out: List[Dict] = []
         for m in idx.values():
             subs = list(m["subs"].values())
-            subs.sort(key=lambda x: x["nome"].lower())  # Ordena subcategorias alfabeticamente
-            out.append({"id": m["id"], "nome": m["nome"], "total": float(m["total"]), "subcats": subs})
-        out.sort(key=lambda x: x["nome"].lower())  # Ordena categorias alfabeticamente
+            # Converte Decimal para float e ordena por valor (maior primeiro)
+            subs = [{"id": s["id"], "nome": s["nome"], "total": float(s["total"])} for s in subs]
+            subs.sort(key=lambda x: -x["total"])  # Ordena por valor decrescente
+            
+            out.append({
+                "id": m["id"], 
+                "nome": m["nome"], 
+                "total": float(m["total"]), 
+                "subcats": subs
+            })
+        
+        # Ordena categorias por valor (maior primeiro)
+        out.sort(key=lambda x: -x["total"])
 
         return out, float(total_geral)
 
     categorias, total_geral = _merge(macros_tx, macros_lc)
+    
+    # Debug: imprime no console do Django
+    print(f"DEBUG - Total de categorias: {len(categorias)}")
+    for i, cat in enumerate(categorias[:3]):
+        print(f"DEBUG - Categoria {i+1}: {cat['nome']} = R$ {cat['total']}")
 
     ctx = {
         "data_ini": data_ini,

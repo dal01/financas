@@ -4,10 +4,10 @@
 {% load static %}
 
 {% block content %}
-<div class="container py-4">
+<div class="container-fluid py-4">
 
   <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-    <h1 class="h4 mb-0">Gastos por Categoria</h1>
+    <h1 class="h4 mb-0">📊 Gastos por Categoria</h1>
   </div>
 
   <!-- Filtros -->
@@ -45,6 +45,39 @@
     </div>
   </form>
 
+  <!-- Gráficos -->
+  {% if categorias %}
+    <div class="row g-4 mb-4">
+      <!-- Gráfico por Macro Categoria -->
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-header">
+            <h5 class="mb-0">🏷️ Top 10 Categorias</h5>
+          </div>
+          <div class="card-body">
+            <div style="position: relative; height: 400px;">
+              <canvas id="chartCategorias"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gráfico por Subcategoria -->
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-header">
+            <h5 class="mb-0">🔖 Top 10 Subcategorias</h5>
+          </div>
+          <div class="card-body">
+            <div style="position: relative; height: 400px;">
+              <canvas id="chartSubcategorias"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
   <!-- Total geral -->
   <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
     <span class="badge text-bg-secondary p-2">
@@ -71,7 +104,7 @@
               <thead class="table-light">
                 <tr>
                   <th>Subcategoria</th>
-                  <th class="text-end" style="width: 200px;">Subtotal</th>
+                  <th class="text-end">Valor</th>
                 </tr>
               </thead>
               <tbody>
@@ -98,8 +131,172 @@
       </div>
     {% endfor %}
   {% else %}
-    <div class="text-muted">Nenhum gasto encontrado no período.</div>
+    <div class="card shadow text-center py-5">
+      <div class="card-body">
+        <h4 class="text-muted mb-3">📭 Nenhum gasto encontrado</h4>
+        <p class="text-muted">Ajuste os filtros ou verifique se há dados para o período selecionado.</p>
+      </div>
+    </div>
   {% endif %}
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+{% if categorias %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('Iniciando geração dos gráficos...');
+  
+  // Cores para os gráficos - gradiente de azul/verde para vermelho
+  const cores = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+  ];
+
+  // Pegar dados das categorias do elemento JSON
+  const categoriasRaw = {{ categorias|slice:":10"|safe }};
+  console.log('Dados brutos das categorias:', categoriasRaw);
+  
+  const dadosCategorias = categoriasRaw.map(cat => ({
+    nome: cat.nome,
+    total: parseFloat(cat.total) || 0
+  }));
+  
+  console.log('Dados processados das categorias:', dadosCategorias);
+
+  // Preparar dados das subcategorias (top 10)
+  const dadosSubcategorias = [];
+  categoriasRaw.forEach(macro => {
+    if (macro.subcats && macro.subcats.length > 0) {
+      macro.subcats.forEach(sub => {
+        dadosSubcategorias.push({
+          nome: sub.nome,
+          categoria: macro.nome,
+          total: parseFloat(sub.total) || 0
+        });
+      });
+    }
+  });
+  
+  console.log('Dados das subcategorias (antes da ordenação):', dadosSubcategorias);
+  
+  // Ordenar subcategorias e pegar top 10
+  dadosSubcategorias.sort((a, b) => b.total - a.total);
+  const top10Subs = dadosSubcategorias.slice(0, 10);
+  
+  console.log('Top 10 subcategorias:', top10Subs);
+
+  // Configuração comum dos gráficos
+  const configComum = {
+    type: 'bar',
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'y', // Barras horizontais
+      plugins: {
+        legend: {
+          display: false // Remove a legenda para gráficos de barras
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const valor = context.parsed.x;
+              return 'R$ ' + valor.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          ticks: {
+            callback: function(value) {
+              return 'R$ ' + (value/1000).toFixed(0) + 'k';
+            }
+          },
+          grid: {
+            color: 'rgba(0,0,0,0.1)'
+          }
+        },
+        y: {
+          ticks: {
+            font: {
+              size: 12
+            }
+          },
+          grid: {
+            display: false
+          }
+        }
+      }
+    }
+  };
+
+  // Gráfico de Categorias
+  const ctxCat = document.getElementById('chartCategorias');
+  if (ctxCat && dadosCategorias.length > 0) {
+    console.log('Criando gráfico de categorias...');
+    new Chart(ctxCat.getContext('2d'), {
+      ...configComum,
+      data: {
+        labels: dadosCategorias.map(item => item.nome),
+        datasets: [{
+          data: dadosCategorias.map(item => item.total),
+          backgroundColor: cores.slice(0, dadosCategorias.length),
+          borderColor: cores.slice(0, dadosCategorias.length),
+          borderWidth: 1,
+          borderRadius: 4,
+          borderSkipped: false,
+        }]
+      }
+    });
+    console.log('Gráfico de categorias criado com sucesso!');
+  } else {
+    console.log('Não foi possível criar gráfico de categorias. Canvas encontrado:', !!ctxCat, 'Dados disponíveis:', dadosCategorias.length);
+  }
+
+  // Gráfico de Subcategorias
+  const ctxSub = document.getElementById('chartSubcategorias');
+  if (ctxSub && top10Subs.length > 0) {
+    console.log('Criando gráfico de subcategorias...');
+    new Chart(ctxSub.getContext('2d'), {
+      ...configComum,
+      data: {
+        labels: top10Subs.map(item => `${item.nome} (${item.categoria})`),
+        datasets: [{
+          data: top10Subs.map(item => item.total),
+          backgroundColor: cores.slice(0, top10Subs.length),
+          borderColor: cores.slice(0, top10Subs.length),
+          borderWidth: 1,
+          borderRadius: 4,
+          borderSkipped: false,
+        }]
+      },
+      options: {
+        ...configComum.options,
+        plugins: {
+          ...configComum.options.plugins,
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const valor = context.parsed.x;
+                const item = top10Subs[context.dataIndex];
+                return `${item.categoria}: R$ ${valor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+              }
+            }
+          }
+        }
+      }
+    });
+    console.log('Gráfico de subcategorias criado com sucesso!');
+  } else {
+    console.log('Não foi possível criar gráfico de subcategorias. Canvas encontrado:', !!ctxSub, 'Dados disponíveis:', top10Subs.length);
+  }
+});
+</script>
+{% endif %}
 {% endblock %}

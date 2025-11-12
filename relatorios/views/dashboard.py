@@ -35,6 +35,7 @@ def dashboard(request):
             "valor": total_entradas(data_ini, data_fim, membros=[membro.id]),
             "media": media_entradas(data_ini, data_fim, membros=[membro.id])
         }
+        print('membro', membro.id)
         cards_entradas_adultos.append(card)
 
     # Cards Saídas (opcional, se quiser mostrar)
